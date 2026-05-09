@@ -94,6 +94,28 @@
   white-space: nowrap;
 }
 
+/* center crosshair: shows users *exactly* where the click will land */
+.overlay__crosshair {
+  position: absolute;
+  width: 24px;
+  height: 24px;
+  margin-left: -12px;
+  margin-top: -12px;
+  pointer-events: none;
+  color: rgba(148, 163, 184, 0.85);
+}
+
+/* the inputBox crosshair gets a brighter, larger marker — that's the most
+ * sensitive point (paste + Enter target) and the one users want to verify. */
+.overlay__crosshair--input {
+  width: 36px;
+  height: 36px;
+  margin-left: -18px;
+  margin-top: -18px;
+  color: #f87171; /* red-400 */
+  filter: drop-shadow(0 0 4px rgba(248, 113, 113, 0.6));
+}
+
 .overlay__footer {
   position: absolute;
   bottom: 24px;

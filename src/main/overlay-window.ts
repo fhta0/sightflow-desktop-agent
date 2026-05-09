@@ -18,7 +18,9 @@ import { join } from 'path'
 import { is } from '@electron-toolkit/utils'
 import type { AppType, BoxRegions, ScreenRect } from '../core/rpa/types'
 
-export type WizardStepKey = 'contactList' | 'chatMain' | 'inputBox' | 'unreadIndicator'
+// 'unreadIndicator' 步骤已下线 —— 见 OverlayApp.tsx 的注释。BoxSelectDevice
+// 的 unreadIndicator 字段保留以便未来扩展，但 wizard 不再让用户框这一步。
+export type WizardStepKey = 'contactList' | 'chatMain' | 'inputBox'
 
 export interface WizardOpenOptions {
   appType: AppType
@@ -123,8 +125,7 @@ export async function runBoxSelectWizard(opts: WizardOpenOptions): Promise<Wizar
   const initialPayload = {
     id: wizardId,
     appType: opts.appType,
-    steps:
-      opts.steps ?? (['contactList', 'chatMain', 'inputBox', 'unreadIndicator'] as WizardStepKey[]),
+    steps: opts.steps ?? (['contactList', 'chatMain', 'inputBox'] as WizardStepKey[]),
     prefill: opts.prefill ?? null,
     display: {
       id: display.id,

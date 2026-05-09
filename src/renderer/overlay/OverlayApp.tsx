@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 
-type WizardStepKey = 'contactList' | 'chatMain' | 'inputBox' | 'unreadIndicator'
+// 框选向导步骤。原本还有 'unreadIndicator'（红点定位），但实际使用里这一步
+// 价值很低（许多 IM 用蓝点 / 数字徽标，框红点不准）且容易让用户困惑，已下线。
+// BoxSelectDevice 现在统一走 contactList 整体红点扫描 + chatMain pixel diff 兜底。
+type WizardStepKey = 'contactList' | 'chatMain' | 'inputBox'
 
 interface ScreenRect {
   x: number
@@ -13,6 +16,7 @@ interface BoxRegions {
   contactList: ScreenRect
   chatMain: ScreenRect
   inputBox: ScreenRect
+  // 保留字段以与后端类型兼容；wizard 不再采集，统一传 null。
   unreadIndicator: ScreenRect | null
   displayId?: number
   scaleFactor?: number
@@ -34,16 +38,14 @@ interface InitPayload {
 const STEP_TITLE: Record<WizardStepKey, string> = {
   contactList: '联系人 / 会话列表',
   chatMain: '会话主区域',
-  inputBox: '消息输入框',
-  unreadIndicator: '未读红点区域（可跳过）'
+  inputBox: '消息输入框'
 }
 
 const STEP_HINT: Record<WizardStepKey, string> = {
   contactList: '框选你想监控的会话列表区域，例如左侧最近聊天列表。',
   chatMain: '框选当前对话窗口（消息显示区），用来检测是否有新内容。',
-  inputBox: '框选回复时要输入文字的输入框，越精确越好。',
-  unreadIndicator:
-    '可选：框选未读消息红点常出现的位置，可显著提升识别精度。如果该 App 用蓝点或数字徽章，可跳过。'
+  inputBox:
+    '框选回复时要输入文字的输入框：尽量贴紧可点击区域，避免框到上面的工具栏。点击会落在矩形几何中心（红色十字位置），框完后留意十字是否正好在输入区中央，不准就重新拖。'
 }
 
 const MIN_DRAG_PX = 6
@@ -148,7 +150,9 @@ export function OverlayApp(): React.ReactElement {
       contactList: toAbsolute(draft.contactList!),
       chatMain: toAbsolute(draft.chatMain!),
       inputBox: toAbsolute(draft.inputBox!),
-      unreadIndicator: draft.unreadIndicator ? toAbsolute(draft.unreadIndicator) : null,
+      // unreadIndicator 已从向导移除；BoxSelectDevice 用 contactList 整体扫红点
+      // + chatMain pixel diff 兜底，无需用户单独框出。
+      unreadIndicator: null,
       displayId: init.display.id,
       scaleFactor: init.display.scaleFactor,
       capturedAt: Date.now()
@@ -159,6 +163,13 @@ export function OverlayApp(): React.ReactElement {
   function onPointerDown(e: React.PointerEvent<HTMLDivElement>): void {
     if (!currentStep) return
     if (e.button !== 0) return
+    // 关键：来自 header（步骤说明 + 按钮组）或 footer 的 pointer event 必须放行。
+    // 否则 e.preventDefault() 会取消同序列的合成 click，导致 "上一步 / 取消"
+    // 等按钮点不动。
+    const target = e.target as HTMLElement | null
+    if (target && (target.closest('.overlay__header') || target.closest('.overlay__footer'))) {
+      return
+    }
     const x = e.clientX
     const y = e.clientY
     setPointer({ pointerId: e.pointerId, startX: x, startY: y, currentX: x, currentY: y })
@@ -182,13 +193,6 @@ export function OverlayApp(): React.ReactElement {
     }
     const next = { ...committed, [currentStep]: final }
     commitStep(currentStep, final)
-    advanceOrFinish(stepIdx + 1, next)
-  }
-
-  function onSkip(): void {
-    if (!currentStep || currentStep !== 'unreadIndicator') return
-    const next = { ...committed, unreadIndicator: undefined }
-    setCommitted(next)
     advanceOrFinish(stepIdx + 1, next)
   }
 
@@ -220,8 +224,6 @@ export function OverlayApp(): React.ReactElement {
     )
   }
 
-  const showSkip = currentStep === 'unreadIndicator'
-
   return (
     <div
       className="overlay"
@@ -245,28 +247,47 @@ export function OverlayApp(): React.ReactElement {
               上一步
             </button>
           )}
-          {showSkip && (
-            <button className="overlay__btn" onClick={onSkip}>
-              跳过此步
-            </button>
-          )}
           <button className="overlay__btn" onClick={onAbort}>
             取消
           </button>
         </div>
       </div>
 
-      {/* committed rects from previous steps */}
+      {/* committed rects from previous steps + a crosshair on each rect's
+       * geometric center, so users can see exactly where the engine will
+       * click. inputBox gets a louder red crosshair because that's the
+       * paste-and-Enter target and the most sensitive to misalignment. */}
       {(Object.keys(committed) as WizardStepKey[]).map((key) => {
         const rect = committed[key]
         if (!rect) return null
+        const cx = rect.x + rect.width / 2
+        const cy = rect.y + rect.height / 2
+        const isInput = key === 'inputBox'
         return (
-          <div
-            key={key}
-            className="overlay__committed"
-            style={{ left: rect.x, top: rect.y, width: rect.width, height: rect.height }}
-          >
-            <span className="overlay__committed-label">{STEP_TITLE[key]}</span>
+          <div key={key}>
+            <div
+              className="overlay__committed"
+              style={{ left: rect.x, top: rect.y, width: rect.width, height: rect.height }}
+            >
+              <span className="overlay__committed-label">{STEP_TITLE[key]}</span>
+            </div>
+            <svg
+              className={
+                isInput
+                  ? 'overlay__crosshair overlay__crosshair--input'
+                  : 'overlay__crosshair'
+              }
+              style={{ left: cx, top: cy }}
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={isInput ? 2.5 : 2}
+              strokeLinecap="round"
+            >
+              <line x1="12" y1="3" x2="12" y2="21" />
+              <line x1="3" y1="12" x2="21" y2="12" />
+              <circle cx="12" cy="12" r={isInput ? 3.5 : 2.5} fill="currentColor" />
+            </svg>
           </div>
         )
       })}
