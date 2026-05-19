@@ -120,7 +120,7 @@ const getWeChatInputPosition = (bounds: any, scaleFactor: number) => {
  * `sendReplyAction`（VLM 路线）与 `BoxSelectDevice.sendMessage`（框选路线）共用此函数。
  *
  * 1. humanLikeMove → 输入框焦点坐标 (x, y)
- * 2. 隐式鼠标左键点击聚焦
+ * 2. 仿人点击聚焦
  * 3. 剪贴板 + Cmd/Ctrl+V 粘贴
  * 4. Enter 发送
  */
@@ -136,36 +136,58 @@ export async function sendReplyByCoordsAction(
   }
 
   try {
-    await humanLikeMove(x, y)
+    // 阶段 1: 移动到目标附近（模拟人类先大致定位）
+    const approachX = x + (Math.random() - 0.5) * 20
+    const approachY = y + (Math.random() - 0.5) * 20
+    await humanLikeMove(approachX, approachY)
     await randomDelayIn(100, 200)
 
-    robot.mouseClick('left')
-    await randomDelayIn(200, 300)
+    // 阶段 2: 微调到精确位置
+    const jitterX = (Math.random() - 0.5) * 8
+    const jitterY = (Math.random() - 0.5) * 8
+    robot.moveMouse(Math.round(x + jitterX), Math.round(y + jitterY))
+    await randomDelayIn(80, 150)
 
+    // 阶段 3: 仿人点击聚焦
+    await humanLikeClick('left')
+    await randomDelayIn(250, 400)
+
+    // 写入剪贴板前的小停顿
     clipboard.writeText(text)
-    await randomDelayIn(50, 100)
+    await randomDelayIn(50, 120)
 
+    // 粘贴操作
     if (IS_MAC) {
       robot.keyTap('v', ['command'])
     } else {
       robot.keyTap('v', ['control'])
     }
 
-    await randomDelayIn(300, 500)
+    await randomDelayIn(400, 700)
 
+    // 发送前的停顿（模拟人类检查内容）
+    await randomDelayIn(200, 500)
+
+    // 发送
     robot.keyTap('enter')
 
+    // Windows 和 Mac 的后续清理
     if (IS_WINDOWS) {
+      await randomDelayIn(50, 100)
       robot.keyTap('enter', ['control'])
-      await randomDelayIn(40, 60)
+      await randomDelayIn(60, 100)
       robot.keyTap('backspace')
     } else {
+      await randomDelayIn(40, 80)
       robot.keyTap('enter', ['command'])
-      await randomDelayIn(20, 40)
+      await randomDelayIn(30, 60)
       robot.keyToggle('command', 'up')
-      await randomDelayIn(20, 40)
+      await randomDelayIn(30, 60)
       robot.keyTap('backspace')
     }
+
+    // 发送后的自然停顿
+    await randomDelayIn(200, 400)
 
     return true
   } catch (err: any) {
@@ -245,19 +267,34 @@ export async function activeUnreadByClickAction(
     policy
   })
 
-  // 移动鼠标到红点中心
-  await humanLikeMove(centerX, centerY)
+  // 阶段 1: 移动到目标附近（非精确位置，模拟人类先大致定位）
+  const approachX = centerX + (Math.random() - 0.5) * 15
+  const approachY = centerY + (Math.random() - 0.5) * 15
+  await humanLikeMove(approachX, approachY)
+  await randomDelayIn(80, 150)
 
-  // 移动后的随机延迟（150-250ms）
-  await randomDelayIn(150, 250)
+  // 阶段 2: 微调到精确位置（小幅度的精细调整）
+  const jitterX = (Math.random() - 0.5) * 6
+  const jitterY = (Math.random() - 0.5) * 6
+  robot.moveMouse(Math.round(centerX + jitterX), Math.round(centerY + jitterY))
+  await randomDelayIn(60, 120)
+
+  // 阶段 3: 点击前的短暂停顿（人类反应时间）
+  await randomDelayIn(50, 150)
 
   // 根据 policy 执行单击或双击
-  robot.mouseClick('left')
+  await humanLikeClick('left')
   if (!isSingleClick) {
-    // 双击：第二次点击
-    await randomDelayIn(40, 60)
-    robot.mouseClick('left')
+    // 双击：第二次点击，间隔更随机化
+    await randomDelayIn(50, 120)
+    await humanLikeClick('left')
   }
+
+  // 阶段 4: 点击后的小幅移动（模拟点击后自然的鼠标微调）
+  await randomDelayIn(100, 200)
+  const postClickX = centerX + (Math.random() - 0.5) * 10
+  const postClickY = centerY + (Math.random() - 0.5) * 10
+  robot.moveMouse(Math.round(postClickX), Math.round(postClickY))
 }
 
 /**
@@ -277,12 +314,29 @@ export async function clickUnreadContactAction(
     firstContactY
   })
 
-  // 移动鼠标到联系人位置
-  await humanLikeMove(firstContactX, firstContactY)
-  await randomDelayIn(150, 250)
+  // 阶段 1: 移动到目标附近（非精确位置，模拟人类先大致定位）
+  const approachX = firstContactX + (Math.random() - 0.5) * 20
+  const approachY = firstContactY + (Math.random() - 0.5) * 20
+  await humanLikeMove(approachX, approachY)
+  await randomDelayIn(100, 180)
 
-  // 点击左键
-  robot.mouseClick('left')
+  // 阶段 2: 微调到精确位置（小幅度的精细调整）
+  const jitterX = (Math.random() - 0.5) * 8
+  const jitterY = (Math.random() - 0.5) * 8
+  robot.moveMouse(Math.round(firstContactX + jitterX), Math.round(firstContactY + jitterY))
+  await randomDelayIn(80, 150)
+
+  // 阶段 3: 点击前的短暂停顿（人类反应时间）
+  await randomDelayIn(80, 180)
+
+  // 使用仿人点击
+  await humanLikeClick('left')
+
+  // 阶段 4: 点击后的小幅移动（模拟点击后自然的鼠标微调）
+  await randomDelayIn(150, 280)
+  const postClickX = firstContactX + (Math.random() - 0.5) * 15
+  const postClickY = firstContactY + (Math.random() - 0.5) * 15
+  robot.moveMouse(Math.round(postClickX), Math.round(postClickY))
+
   console.log('[clickUnreadContact] 点击完成')
-  await randomDelayIn(150, 250)
 }
