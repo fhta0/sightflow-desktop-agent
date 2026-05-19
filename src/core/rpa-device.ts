@@ -157,6 +157,7 @@ export class RPADevice implements DesktopDevice {
   async hasUnreadMessage(): Promise<{
     hasUnread: boolean
     chatEntranceArea?: { bbox: BBox; coordinates: [number, number] }
+    firstContact?: { bbox: BBox; coordinates: [number, number] }
   }> {
     if (!this.aiClient) {
       console.warn('[RPADevice] aiClient 未初始化，无法进行视觉检测')
@@ -172,7 +173,8 @@ export class RPADevice implements DesktopDevice {
 
     return {
       hasUnread: result.hasUnread || false,
-      chatEntranceArea: result.chatEntranceArea
+      chatEntranceArea: result.chatEntranceArea,
+      firstContact: result.firstContact
     }
   }
 

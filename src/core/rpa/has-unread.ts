@@ -33,6 +33,7 @@ export async function hasUnreadMessage(
   hasUnread?: boolean
   percentage?: number
   chatEntranceArea?: { bbox: BBox; coordinates: [number, number] }
+  firstContact?: { bbox: BBox; coordinates: [number, number] }
   error?: string
 }> {
   const THRESHOLD = 1 // 1% 红点占比阈值
@@ -86,7 +87,8 @@ export async function hasUnreadMessage(
       success: true,
       hasUnread,
       percentage,
-      chatEntranceArea: unreadArea.chatEntranceArea
+      chatEntranceArea: unreadArea.chatEntranceArea,
+      firstContact: unreadArea.firstContact || undefined
     }
   } catch (error: any) {
     console.error('[HasUnread] Step 1 失败:', error)

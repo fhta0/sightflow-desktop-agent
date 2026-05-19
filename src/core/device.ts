@@ -42,6 +42,7 @@ export interface DesktopDevice {
   hasUnreadMessage(): Promise<{
     hasUnread: boolean
     chatEntranceArea?: { bbox: BBox; coordinates: [number, number] }
+    firstContact?: { bbox: BBox; coordinates: [number, number] }
   }>
 
   /**
