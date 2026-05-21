@@ -11,12 +11,14 @@ import { ChannelContext, ChannelSession, ProviderEvent, SessionEvent } from './s
 export interface GenericChannelState {
   measuredAt: number | null
   latestChatBaseline: number | null
+  pendingRedDots: Array<{ x: number; y: number }> | null
 }
 
 export function createInitialGenericChannelState(): GenericChannelState {
   return {
     measuredAt: null,
-    latestChatBaseline: null
+    latestChatBaseline: null,
+    pendingRedDots: null
   }
 }
 
@@ -97,6 +99,22 @@ export class GenericChannelSession implements ChannelSession<GenericChannelState
         break
 
       case 'check_unread': {
+        // 首先检查是否有待处理的红点队列
+        if (ctx.state.pendingRedDots && ctx.state.pendingRedDots.length > 0) {
+          const nextRedDot = ctx.state.pendingRedDots.shift()!
+          ctx.host.log(
+            'thinking',
+            `处理待办红点 (${ctx.state.pendingRedDots.length + 1} 个中的第 1 个)`
+          )
+          await this.device.clickUnreadContact([nextRedDot.x, nextRedDot.y])
+          await this.sleep(500 + Math.random() * 300)
+          this.device.clearChatBaseline()
+          ctx.state.latestChatBaseline = null
+          ctx.host.enqueue({ type: 'observe_chat' })
+          break
+        }
+
+        // 检查当前对话是否有新消息
         const diffResult = await this.device.hasChatAreaChanged()
         if (diffResult.hasDiff) {
           ctx.host.log('thinking', '检测到当前对话有新消息')
@@ -104,6 +122,38 @@ export class GenericChannelSession implements ChannelSession<GenericChannelState
           break
         }
 
+        // 第一步：扫描联系人列表区域寻找所有红点
+        ctx.host.log('thinking', '扫描联系人列表寻找未读消息...')
+        const redDots = await this.device.scanContactListForRedDots()
+
+        if (redDots.length > 0) {
+          // 找到红点，先处理第一个，其余的存入队列
+          ctx.host.log(
+            'thinking',
+            `发现 ${redDots.length} 个有未读消息的联系人，开始处理`
+          )
+
+          const firstRedDot = redDots[0]
+          // 如果有更多红点，存入状态
+          if (redDots.length > 1) {
+            ctx.state.pendingRedDots = redDots.slice(1)
+            ctx.host.log(
+              'thinking',
+              `已缓存 ${ctx.state.pendingRedDots.length} 个待处理红点`
+            )
+          }
+
+          // 点击第一个红点联系人
+          await this.device.clickUnreadContact([firstRedDot.x, firstRedDot.y])
+          await this.sleep(500 + Math.random() * 300)
+          this.device.clearChatBaseline()
+          ctx.state.latestChatBaseline = null
+          ctx.host.enqueue({ type: 'observe_chat' })
+          break
+        }
+
+        // 当前窗口没有可见红点，进行粗检测
+        ctx.host.log('thinking', '当前列表无可见红点，进行全局检测...')
         const unreadResult = await this.device.hasUnreadMessage()
         if (!unreadResult.hasUnread) {
           ctx.host.enqueue({
@@ -114,6 +164,7 @@ export class GenericChannelSession implements ChannelSession<GenericChannelState
           break
         }
 
+        // 有全局未读，但当前列表看不到，可能是需要滚动或折叠状态
         const chatEntranceCoords = unreadResult.chatEntranceArea?.coordinates
         if (!chatEntranceCoords) {
           ctx.host.log('error', '检测到未读消息，但未找到聊天入口位置')
@@ -125,21 +176,35 @@ export class GenericChannelSession implements ChannelSession<GenericChannelState
           break
         }
 
-        ctx.host.log('thinking', '检测到未读消息，正在尝试打开会话')
+        ctx.host.log('thinking', '检测到未读消息，展开联系人列表')
         await this.device.activeUnreadByClick(chatEntranceCoords)
-        await this.sleep(150 + Math.random() * 100)
+        await this.sleep(500 + Math.random() * 300)
 
-        const openResult = await this.tryOpenUnreadConversation(ctx)
-        if (openResult === 'opened') {
+        // 再次扫描联系人列表
+        const redDotsAfterExpand = await this.device.scanContactListForRedDots()
+        if (redDotsAfterExpand.length > 0) {
+          const firstRedDot = redDotsAfterExpand[0]
+          if (redDotsAfterExpand.length > 1) {
+            ctx.state.pendingRedDots = redDotsAfterExpand.slice(1)
+          }
+          await this.device.clickUnreadContact([firstRedDot.x, firstRedDot.y])
+          await this.sleep(500 + Math.random() * 300)
+          this.device.clearChatBaseline()
+          ctx.state.latestChatBaseline = null
           ctx.host.enqueue({ type: 'observe_chat' })
-          break
+        } else {
+          // 仍然找不到，使用传统方法
+          const openResult = await this.tryOpenUnreadConversation(ctx)
+          if (openResult === 'opened') {
+            ctx.host.enqueue({ type: 'observe_chat' })
+          } else {
+            ctx.host.enqueue({
+              type: 'wait_retry',
+              reason: openResult,
+              delayMs: this.retryDelayMs
+            })
+          }
         }
-
-        ctx.host.enqueue({
-          type: 'wait_retry',
-          reason: openResult,
-          delayMs: this.retryDelayMs
-        })
         break
       }
 
@@ -193,6 +258,7 @@ export class GenericChannelSession implements ChannelSession<GenericChannelState
   private resetState(state: GenericChannelState): void {
     state.measuredAt = null
     state.latestChatBaseline = null
+    state.pendingRedDots = null
   }
 
   private async tryOpenUnreadConversation(
