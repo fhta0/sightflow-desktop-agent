@@ -31,4 +31,4 @@ log.txt
 screenshot_*.png
 
 # TypeScript incremental build info
-*.tsbuildinf
+*.tsbuildinfo

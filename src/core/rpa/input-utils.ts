@@ -412,21 +412,23 @@ export async function clickUnreadContactAction(
   const robot = getRobot()
   if (!robot) return
 
-  // 联系人行约 60-70px 高，头像在左侧
-  // 随机把红点坐标（右上角）偏移到联系人行的不同位置，避免每次点击同一个点
-  const rowOffsetX = Math.random() * 100 + 30  // 向右偏移 30-130px（头像/名字区域）
-  const rowOffsetY = Math.random() * 40 + 10   // 向下偏移 10-50px（行内垂直位置）
+  // 红点在头像右上角，不能向左偏（会超出窗口到左侧导航栏外）。
+  // 改为在红点附近小范围随机偏移，主要在头像/名字区域内：
+  //   水平：向右 0-30px（头像内部）
+  //   垂直：向下 10-50px（行内位置）
+  const offsetX = Math.random() * 30
+  const offsetY = Math.random() * 40 + 10
 
-  const clickX = coordinates[0] - rowOffsetX  // 红点在头像右上角，向左下方偏移
-  const clickY = coordinates[1] + rowOffsetY
+  const clickX = coordinates[0] + offsetX
+  const clickY = coordinates[1] + offsetY
 
   console.log('[clickUnreadContact] 点击联系人', {
     redDotX: coordinates[0],
     redDotY: coordinates[1],
     clickX,
     clickY,
-    offsetX: -rowOffsetX,
-    offsetY: rowOffsetY
+    offsetX,
+    offsetY
   })
 
   // 阶段 1: 移动到目标附近（非精确位置，模拟人类先大致定位）
