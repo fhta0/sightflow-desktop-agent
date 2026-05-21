@@ -110,7 +110,15 @@ export class GenericChannelSession implements ChannelSession<GenericChannelState
           await this.sleep(500 + Math.random() * 300)
           this.device.clearChatBaseline()
           ctx.state.latestChatBaseline = null
-          ctx.host.enqueue({ type: 'observe_chat' })
+
+          // 如果是最后一个红点，跳过再次扫描直接粗检测
+          // 避免服务号等不会消红点的入口导致无限循环
+          if (ctx.state.pendingRedDots.length === 0) {
+            ctx.host.log('thinking', '所有可见红点已处理，进行全局检测')
+            ctx.host.enqueue({ type: 'check_unread_skip_scan' })
+          } else {
+            ctx.host.enqueue({ type: 'observe_chat' })
+          }
           break
         }
 
@@ -148,7 +156,14 @@ export class GenericChannelSession implements ChannelSession<GenericChannelState
           await this.sleep(500 + Math.random() * 300)
           this.device.clearChatBaseline()
           ctx.state.latestChatBaseline = null
-          ctx.host.enqueue({ type: 'observe_chat' })
+
+          // 如果只有一个红点，处理完后跳过再次扫描
+          if (redDots.length === 1) {
+            ctx.host.log('thinking', '唯一可见红点已处理，进行全局检测')
+            ctx.host.enqueue({ type: 'check_unread_skip_scan' })
+          } else {
+            ctx.host.enqueue({ type: 'observe_chat' })
+          }
           break
         }
 
@@ -205,6 +220,31 @@ export class GenericChannelSession implements ChannelSession<GenericChannelState
             })
           }
         }
+        break
+      }
+
+      case 'check_unread_skip_scan': {
+        // 跳过扫描，直接粗检测
+        // 用于服务号等不会消红点的入口，避免扫描→点击→同样红点的无限循环
+        const unreadResult = await this.device.hasUnreadMessage()
+        if (!unreadResult.hasUnread) {
+          ctx.host.log('thinking', '全局检测无未读消息')
+          ctx.host.enqueue({
+            type: 'wait_retry',
+            reason: 'no_unread',
+            delayMs: this.retryDelayMs
+          })
+          break
+        }
+
+        // 有未读但扫描区域看不到，展开再扫
+        const chatEntranceCoords = unreadResult.chatEntranceArea?.coordinates
+        if (chatEntranceCoords) {
+          ctx.host.log('thinking', '检测到未读消息，展开联系人列表')
+          await this.device.activeUnreadByClick(chatEntranceCoords)
+          await this.sleep(500 + Math.random() * 300)
+        }
+        ctx.host.enqueue({ type: 'check_unread' })
         break
       }
 

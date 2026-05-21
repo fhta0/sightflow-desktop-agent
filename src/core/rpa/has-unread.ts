@@ -453,10 +453,11 @@ export async function scanContactListForRedDots(
     console.log(`[HasUnread] 扫描区域尺寸: ${width}x${height}`)
 
     // 扫描红点：联系人头像在每行左侧，红点在头像右上角
-    // 裁剪区域从窗口左侧 x=72 开始，左侧约 40px 是导航栏图标（绿色/灰色圆形），需跳过
-    // 头像区域在裁剪图 x=40 ~ x=90 范围内
-    const AVATAR_ZONE_LEFT = 40
-    const AVATAR_ZONE_RIGHT = 115  // 头像宽度(~42px) + 红点(~10px) + 余量
+    // 裁剪区域从窗口左侧 x=72 开始（跳过左侧窄导航条）
+    // 左侧约 55px 是微信左侧导航栏图标（绿色/灰色圆形），需跳过
+    // 联系人头像在裁剪图 x=55 ~ x=105 范围内
+    const AVATAR_ZONE_LEFT = 55
+    const AVATAR_ZONE_RIGHT = 115  // 头像右边缘 + 红点(~10px) + 余量
 
     // 存储检测到的红点位置
     const redDots: { x: number; y: number; redIntensity: number }[] = []

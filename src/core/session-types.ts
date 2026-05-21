@@ -21,6 +21,7 @@ export type SessionEvent =
   | { type: 'provider.skip' }
   | { type: 'provider.error'; error: string }
   | { type: 'check_unread' }
+  | { type: 'check_unread_skip_scan' }
   | { type: 'wait_retry'; reason?: string; delayMs?: number }
 
 export interface ProviderAdapter {
