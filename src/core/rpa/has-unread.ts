@@ -453,17 +453,16 @@ export async function scanContactListForRedDots(
     console.log(`[HasUnread] 扫描区域尺寸: ${width}x${height}`)
 
     // 扫描红点：联系人头像在每行左侧，红点在头像右上角
-    // 裁剪区域从窗口左侧 x=72 开始（跳过左侧窄导航条）
-    // 左侧约 55px 是微信左侧导航栏图标（绿色/灰色圆形），需跳过
-    // 联系人头像在裁剪图 x=55 ~ x=105 范围内
-    const AVATAR_ZONE_LEFT = 55
-    const AVATAR_ZONE_RIGHT = 115  // 头像右边缘 + 红点(~10px) + 余量
+    // 裁剪区域从窗口左侧 x=72 开始，覆盖整个中间联系人列
+    // 放宽扫描范围到 x=30-140，确保覆盖所有可能的头像红点区域
+    const AVATAR_ZONE_LEFT = 30
+    const AVATAR_ZONE_RIGHT = 140
 
     // 存储检测到的红点位置
     const redDots: { x: number; y: number; redIntensity: number }[] = []
 
-    // 扫描步长（每5个像素扫描一次，提高效率）
-    const step = 5
+    // 扫描步长（每3个像素扫描一次）
+    const step = 3
 
     for (let x = AVATAR_ZONE_LEFT; x < AVATAR_ZONE_RIGHT && x < width; x += step) {
       for (let y = 0; y < height; y += step) {
@@ -473,6 +472,21 @@ export async function scanContactListForRedDots(
         // 红点检测条件：红色明显强于绿色和蓝色，且透明度足够
         if (a > 128 && r > 180 && r > g * 1.6 && r > b * 1.6) {
           redDots.push({ x, y, redIntensity: r })
+        }
+      }
+    }
+
+    // 调试：如果没找到红点，输出扫描区域几个采样点的颜色
+    if (redDots.length === 0) {
+      const samplePositions = [
+        { x: 50, y: 100 }, { x: 70, y: 150 }, { x: 55, y: 200 },
+        { x: 80, y: 250 }, { x: 60, y: 300 }
+      ]
+      console.log('[HasUnread] 调试：采样点颜色')
+      for (const pos of samplePositions) {
+        if (pos.x < width && pos.y < height) {
+          const rgba = intToRGBA(image.getPixelColor(pos.x, pos.y))
+          console.log(`[HasUnread]   (${pos.x},${pos.y}): r=${rgba.r} g=${rgba.g} b=${rgba.b} a=${rgba.a}`)
         }
       }
     }
