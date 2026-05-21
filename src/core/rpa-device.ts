@@ -12,7 +12,8 @@ import { captureChatMainArea } from './rpa/screenshot-utils'
 import { sendReplyAction, activeUnreadByClickAction, clickUnreadContactAction } from './rpa/input-utils'
 import {
   hasUnreadMessage as hasUnreadMessageDetect,
-  isChatContactUnread as isChatContactUnreadDetect
+  isChatContactUnread as isChatContactUnreadDetect,
+  scanContactListForRedDots as scanContactListForRedDotsDetect
 } from './rpa/has-unread'
 import {
   setChatBaseline as setChatBaselineFn,
@@ -198,6 +199,15 @@ export class RPADevice implements DesktopDevice {
       isUnread: result.isUnread || false,
       firstContactCoords: result.firstContact?.coordinates
     }
+  }
+
+  /**
+   * 扫描联系人列表区域，找到所有红点位置
+   * 返回当前可见联系人列表中所有检测到的红点坐标
+   */
+  async scanContactListForRedDots(): Promise<Array<{ x: number; y: number }>> {
+    const results = await scanContactListForRedDotsDetect(this.appType)
+    return results.map(r => ({ x: r.x, y: r.y }))
   }
 
   /**

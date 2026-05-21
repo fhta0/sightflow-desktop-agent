@@ -1,12 +1,17 @@
 node_modules
 dist
 out
+build/config.gypi
+
+# Compiled JS in scripts (keep .mjs source files)
+scripts/*.js
 .DS_Store
 .eslintcache
 *.log*
 
 # Local documents and config
 .local/
+.claude/
 
 # Environment variables
 .env
@@ -21,3 +26,6 @@ out
 .Trashes
 ehthumbs.db
 Thumbs.db
+CLAUDE.md
+log.txt
+screenshot_*.png

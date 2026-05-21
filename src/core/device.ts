@@ -55,6 +55,13 @@ export interface DesktopDevice {
   }>
 
   /**
+   * 扫描联系人列表区域，找到所有红点位置
+   * 返回当前可见联系人列表中所有有红点的联系人坐标
+   * @returns 红点坐标数组，如果没有找到返回空数组
+   */
+  scanContactListForRedDots(): Promise<Array<{ x: number; y: number }>>
+
+  /**
    * 清除未读区域的坐标缓存（chatEntranceArea + firstContact）。
    * 清除未读区域缓存。
    */

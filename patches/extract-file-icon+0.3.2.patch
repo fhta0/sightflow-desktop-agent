@@ -1,0 +1,16 @@
+diff --git a/node_modules/extract-file-icon/binding.gyp b/node_modules/extract-file-icon/binding.gyp
+index 7a1c7fd..01fb030 100644
+--- a/node_modules/extract-file-icon/binding.gyp
++++ b/node_modules/extract-file-icon/binding.gyp
+@@ -30,6 +30,11 @@
+         "<!@(node -p \"require('node-addon-api').include\")"
+       ],
+       'defines': [ 'NAPI_DISABLE_CPP_EXCEPTIONS' ],
++      'msvs_settings': {
++        'VCCLCompilerTool': {
++          'ExceptionHandling': 1,
++        },
++      },
+     }
+   ]
+ }

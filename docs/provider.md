@@ -154,7 +154,7 @@ resources/providers/volcengine-ark/provider.bundle.js
 3. Provider 收到 `input.screenshot` 后，调用火山方舟 OpenAI 兼容接口：
 
 ```text
-POST https://ark.cn-beijing.volces.com/api/v3/chat/completions
+POST https://ark.cn-beijing.volces.com/api/plan/v3/chat/completions
 ```
 
 4. 请求中使用 `messages`，把截图作为 `image_url`，把回复要求作为文本消息传入。

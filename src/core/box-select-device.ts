@@ -142,6 +142,11 @@ export class BoxSelectDevice implements DesktopDevice {
     return { isUnread: false }
   }
 
+  // box-select 模式不支持扫描红点列表
+  async scanContactListForRedDots(): Promise<Array<{ x: number; y: number }>> {
+    return []
+  }
+
   // box-select 没有 VLM 缓存可清；no-op。
   clearUnreadCache(): void {
     // intentionally empty

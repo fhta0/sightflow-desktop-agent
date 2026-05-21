@@ -47,6 +47,11 @@ export class MockDevice implements DesktopDevice {
     return { isUnread: true, firstContactCoords: [200, 200] }
   }
 
+  async scanContactListForRedDots(): Promise<Array<{ x: number; y: number }>> {
+    // Mock: 返回模拟的红点位置
+    return [{ x: 200, y: 200 }]
+  }
+
   clearUnreadCache(): void {
     console.log('[MockDevice] 清除未读缓存（模拟）')
   }

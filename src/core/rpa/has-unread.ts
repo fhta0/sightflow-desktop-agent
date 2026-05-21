@@ -329,3 +329,140 @@ async function analyzeRedPixelEdge(
     return null
   }
 }
+
+// ── 联系人列表红点扫描 ──
+
+import { Jimp, intToRGBA } from 'jimp'
+
+interface RedDotPosition {
+  x: number
+  y: number
+  confidence: number
+}
+
+/**
+ * 在联系人列表区域扫描所有红点
+ * 返回当前可见联系人列表中所有检测到的红点位置
+ *
+ * @param appType 应用类型
+ * @param contactListArea 联系人列表区域（相对于窗口的坐标）
+ * @returns 红点位置数组，如果没找到返回空数组
+ */
+export async function scanContactListForRedDots(
+  appType: AppType,
+  contactListArea?: { x: number; y: number; width: number; height: number }
+): Promise<RedDotPosition[]> {
+  try {
+    console.log('[HasUnread] 扫描联系人列表区域寻找所有红点...')
+
+    // 获取窗口信息
+    const windowInfo = await getWindowInfo(appType, false)
+    if (!windowInfo?.bounds) {
+      console.error('[HasUnread] 无法获取窗口信息')
+      return []
+    }
+
+    // 如果没有提供联系人列表区域，使用默认区域（中间列）
+    const scanArea = contactListArea || {
+      x: 0.08 * windowInfo.bounds.width,  // 约 8% 从左边缘开始（跳过左侧导航栏）
+      y: 0.12 * windowInfo.bounds.height, // 约 12% 从顶部开始（跳过搜索框）
+      width: 0.28 * windowInfo.bounds.width, // 约 28% 宽度（中间联系人列）
+      height: 0.75 * windowInfo.bounds.height // 约 75% 高度（联系人列表）
+    }
+
+    // 截图联系人列表区域
+    const screenshotResult = await captureWechatWindow(appType, scanArea)
+    if (!screenshotResult.success || !screenshotResult.screenshotBase64) {
+      console.error('[HasUnread] 截图失败')
+      return []
+    }
+
+    // 解析图像
+    const buffer = Buffer.from(
+      screenshotResult.screenshotBase64.replace(/^data:image\/\w+;base64,/, ''),
+      'base64'
+    )
+    const image = await Jimp.read(buffer)
+    const { width, height } = image.bitmap
+
+    console.log(`[HasUnread] 扫描区域尺寸: ${width}x${height}`)
+
+    // 扫描红点（只扫描第一象限 - 右上角，因为红点通常在头像右上角）
+    const centerX = width / 2
+    const centerY = height / 2
+
+    // 存储检测到的红点位置
+    const redDots: { x: number; y: number; redIntensity: number }[] = []
+
+    // 扫描步长（每5个像素扫描一次，提高效率）
+    const step = 5
+
+    for (let x = Math.floor(centerX); x < width; x += step) {
+      for (let y = 0; y < Math.floor(centerY); y += step) {
+        const rgba = intToRGBA(image.getPixelColor(x, y))
+        const { r, g, b, a } = rgba
+
+        // 红点检测条件：红色明显强于绿色和蓝色，且透明度足够
+        if (a > 128 && r > 180 && r > g * 1.6 && r > b * 1.6) {
+          redDots.push({ x, y, redIntensity: r })
+        }
+      }
+    }
+
+    if (redDots.length === 0) {
+      console.log('[HasUnread] 未在联系人列表中找到红点')
+      return []
+    }
+
+    // 对检测到的红点进行聚类（相邻的点可能是同一个红点）
+    const clusters: { points: typeof redDots; avgX: number; avgY: number }[] = []
+    const clusterRadius = 30 // 聚类半径
+
+    for (const dot of redDots) {
+      let addedToCluster = false
+
+      for (const cluster of clusters) {
+        const distance = Math.sqrt(
+          Math.pow(dot.x - cluster.avgX, 2) + Math.pow(dot.y - cluster.avgY, 2)
+        )
+        if (distance < clusterRadius) {
+          cluster.points.push(dot)
+          // 重新计算平均值
+          cluster.avgX = cluster.points.reduce((sum, p) => sum + p.x, 0) / cluster.points.length
+          cluster.avgY = cluster.points.reduce((sum, p) => sum + p.y, 0) / cluster.points.length
+          addedToCluster = true
+          break
+        }
+      }
+
+      if (!addedToCluster) {
+        clusters.push({
+          points: [dot],
+          avgX: dot.x,
+          avgY: dot.y
+        })
+      }
+    }
+
+    // 按y坐标排序（从上到下）
+    clusters.sort((a, b) => a.avgY - b.avgY)
+
+    // 转换为屏幕坐标
+    const results: RedDotPosition[] = clusters.map(cluster => ({
+      x: Math.round(scanArea.x + cluster.avgX),
+      y: Math.round(scanArea.y + cluster.avgY),
+      confidence: cluster.points.length / redDots.length
+    }))
+
+    console.log('[HasUnread] 扫描到红点:', {
+      count: results.length,
+      positions: results.map(r => ({ x: r.x, y: r.y })),
+      totalRedPixels: redDots.length
+    })
+
+    return results
+  } catch (error) {
+    console.error('[HasUnread] 扫描联系人列表失败:', error)
+    return []
+  }
+}

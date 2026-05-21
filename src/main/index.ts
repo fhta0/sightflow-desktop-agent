@@ -34,8 +34,8 @@ import {
 } from './skill-server'
 const StoreClass = typeof Store === 'function' ? Store : ((Store as any).default as typeof Store)
 
-const FIXED_ARK_MODEL = 'doubao-seed-2-0-lite-260215'
-const FIXED_ARK_BASE_URL = 'https://ark.cn-beijing.volces.com/api/v3'
+const FIXED_ARK_MODEL = 'doubao-seed-2.0-lite'
+const FIXED_ARK_BASE_URL = 'https://ark.cn-beijing.volces.com/api/plan/v3'
 
 interface PerAppCapture {
   strategy: CaptureStrategy

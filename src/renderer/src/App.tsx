@@ -164,7 +164,7 @@ const BUILTIN_PROVIDER_CATALOG: ProviderCatalogItem[] = [
           key: 'baseURL',
           label: 'Base URL',
           type: 'url',
-          placeholder: 'https://ark.cn-beijing.volces.com/api/v3'
+          placeholder: 'https://ark.cn-beijing.volces.com/api/plan/v3'
         },
         {
           key: 'systemPrompt',
@@ -700,12 +700,12 @@ function SettingsPanel() {
 
         <div className="form-group">
           <label className="form-label">{t('settings.visionModel')}</label>
-          <input className="form-input" value="doubao-seed-2-0-lite-260215" disabled />
+          <input className="form-input" value="doubao-seed-2.0-lite" disabled />
         </div>
 
         <div className="form-group">
           <label className="form-label">{t('settings.visionBaseUrl')}</label>
-          <input className="form-input" value="https://ark.cn-beijing.volces.com/api/v3" disabled />
+          <input className="form-input" value="https://ark.cn-beijing.volces.com/api/plan/v3" disabled />
         </div>
 
         <div style={{ display: 'flex', gap: 8 }}>
