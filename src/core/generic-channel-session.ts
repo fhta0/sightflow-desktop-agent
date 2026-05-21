@@ -126,39 +126,6 @@ export class GenericChannelSession implements ChannelSession<GenericChannelState
         }
 
         ctx.host.log('thinking', '检测到未读消息，正在尝试打开会话')
-
-        // 检查是否有有效的联系人坐标（VLM 必须检测到带红点的联系人）
-        const firstContactCoords = unreadResult.firstContact?.coordinates
-        if (!firstContactCoords) {
-          ctx.host.log(
-            'thinking',
-            '未找到带红点的联系人，可能当前未读来自已打开的会话或联系人列表未展开'
-          )
-          // 尝试点击聊天入口展开联系人列表
-          await this.device.activeUnreadByClick(chatEntranceCoords)
-          await this.sleep(300 + Math.random() * 100)
-
-          // 重新检测未读
-          const retryResult = await this.device.hasUnreadMessage()
-          if (!retryResult.hasUnread || !retryResult.firstContact?.coordinates) {
-            ctx.host.log('skip', '重新检测后仍未找到带红点的联系人，等待下一轮')
-            ctx.host.enqueue({
-              type: 'wait_retry',
-              reason: 'no_contact_with_red_dot',
-              delayMs: this.retryDelayMs
-            })
-            break
-          }
-
-          // 使用重新检测到的联系人坐标
-          ctx.host.log('thinking', '重新检测成功，使用新的联系人坐标')
-          const openResult = await this.tryOpenUnreadConversation(ctx)
-          if (openResult === 'opened') {
-            ctx.host.enqueue({ type: 'observe_chat' })
-            break
-          }
-        }
-
         await this.device.activeUnreadByClick(chatEntranceCoords)
         await this.sleep(150 + Math.random() * 100)
 

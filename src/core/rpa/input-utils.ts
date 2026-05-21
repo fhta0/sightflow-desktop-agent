@@ -75,27 +75,86 @@ async function humanLikeMove(
 }
 
 /**
+ * 点击风格：影响按压时长和整体节奏
+ * - fast: 快速点击，适合熟练用户的习惯操作
+ * - normal: 正常点击，最常见的节奏
+ * - careful: 谨慎点击，对重要操作的小心确认
+ */
+export type ClickStyle = 'fast' | 'normal' | 'careful'
+
+/**
+ * 根据点击风格获取按压时长范围（毫秒）
+ */
+function getPressDurationRange(style: ClickStyle): { min: number; max: number } {
+  switch (style) {
+    case 'fast':
+      return { min: 40, max: 80 }      // 快速熟练点击
+    case 'normal':
+      return { min: 80, max: 160 }     // 正常点击
+    case 'careful':
+      return { min: 150, max: 280 }    // 谨慎确认点击
+  }
+}
+
+/**
+ * 随机选择点击风格（权重：fast 20%, normal 60%, careful 20%）
+ */
+function randomClickStyle(): ClickStyle {
+  const r = Math.random()
+  if (r < 0.2) return 'fast'
+  if (r < 0.8) return 'normal'
+  return 'careful'
+}
+
+/**
  * 仿人化的鼠标点击函数
  * 将点击分解为按下和抬起，并加入随机物理按压延迟
+ *
+ * 人类点击特征：
+ * 1. 按压时长不固定（快速40-80ms，正常80-160ms，谨慎150-280ms）
+ * 2. 按下过程有微小抖动（手指不是完全稳定）
+ * 3. 点击后自然停顿（模拟反应时间）
+ *
  * @param button 鼠标按键，默认 'left'
+ * @param style 点击风格，默认随机
  */
-export async function humanLikeClick(button: 'left' | 'right' = 'left'): Promise<void> {
+export async function humanLikeClick(
+  button: 'left' | 'right' = 'left',
+  style?: ClickStyle
+): Promise<void> {
   const robot = getRobot()
   if (!robot) return
+
+  const actualStyle = style ?? randomClickStyle()
+  const { min, max } = getPressDurationRange(actualStyle)
 
   try {
     // 模拟按下
     robot.mouseToggle('down', button)
 
-    // 模拟物理按压耗时 (50ms - 150ms)
-    const pressDuration = 120 + Math.random() * 100
+    // 模拟按压过程中的微小抖动（人类手指不是完全稳定）
+    // 只在 normal 和 careful 模式下添加抖动
+    if (actualStyle !== 'fast') {
+      const pos = robot.getMousePos()
+      const jitterCount = Math.floor(Math.random() * 2) + 1 // 1-2次抖动
+
+      for (let i = 0; i < jitterCount; i++) {
+        const jitterX = (Math.random() - 0.5) * 2  // ±1像素
+        const jitterY = (Math.random() - 0.5) * 2
+        robot.moveMouse(Math.round(pos.x + jitterX), Math.round(pos.y + jitterY))
+        await delay(15 + Math.random() * 20)
+      }
+    }
+
+    // 模拟物理按压耗时
+    const pressDuration = min + Math.random() * (max - min)
     await delay(Math.round(pressDuration))
 
     // 模拟抬起
     robot.mouseToggle('up', button)
 
-    // 点击后的随机微小停顿，模拟人类反应
-    const afterClickDelay = 50 + Math.random() * 100
+    // 点击后的随机微小停顿，模拟人类反应（反应时间通常100-250ms）
+    const afterClickDelay = 80 + Math.random() * 170
     await delay(Math.round(afterClickDelay))
   } catch (error) {
     console.error('【拟人化点击】执行失败:', error)
@@ -119,6 +178,13 @@ const getWeChatInputPosition = (bounds: any, scaleFactor: number) => {
  * 业务原子 2 — 核心实现：按给定坐标发送消息（不依赖 VLM 缓存）。
  * `sendReplyAction`（VLM 路线）与 `BoxSelectDevice.sendMessage`（框选路线）共用此函数。
  *
+ * 人类行为特征：
+ * 1. 移动到输入框有轨迹，不是瞬间到位
+ * 2. 点击聚焦后有短暂停顿（等待输入框激活）
+ * 3. 粘贴前有"准备动作"停顿
+ * 4. 发送前有"检查内容"停顿（人类习惯）
+ * 5. 发送后自然移动鼠标离开
+ *
  * 1. humanLikeMove → 输入框焦点坐标 (x, y)
  * 2. 仿人点击聚焦
  * 3. 剪贴板 + Cmd/Ctrl+V 粘贴
@@ -137,57 +203,66 @@ export async function sendReplyByCoordsAction(
 
   try {
     // 阶段 1: 移动到目标附近（模拟人类先大致定位）
-    const approachX = x + (Math.random() - 0.5) * 20
-    const approachY = y + (Math.random() - 0.5) * 20
+    const approachX = x + (Math.random() - 0.5) * 30  // 扩大范围
+    const approachY = y + (Math.random() - 0.5) * 30
     await humanLikeMove(approachX, approachY)
-    await randomDelayIn(100, 200)
+    await randomDelayIn(150, 280)
 
     // 阶段 2: 微调到精确位置
-    const jitterX = (Math.random() - 0.5) * 8
-    const jitterY = (Math.random() - 0.5) * 8
+    const jitterX = (Math.random() - 0.5) * 10
+    const jitterY = (Math.random() - 0.5) * 10
     robot.moveMouse(Math.round(x + jitterX), Math.round(y + jitterY))
+    await randomDelayIn(100, 180)
+
+    // 阶段 3: 点击前的犹豫停顿
+    await hesitationPause(false)
+
+    // 阶段 4: 仿人点击聚焦（使用 careful 风格，聚焦是重要操作）
+    await humanLikeClick('left', 'careful')
+    await randomDelayIn(300, 500)  // 等待输入框激活
+
+    // 阶段 5: 写入剪贴板前的"准备动作"停顿
     await randomDelayIn(80, 150)
-
-    // 阶段 3: 仿人点击聚焦
-    await humanLikeClick('left')
-    await randomDelayIn(250, 400)
-
-    // 写入剪贴板前的小停顿
     clipboard.writeText(text)
-    await randomDelayIn(50, 120)
+    await randomDelayIn(100, 200)  // 剪贴板写入后的停顿
 
-    // 粘贴操作
+    // 阶段 6: 粘贴操作
     if (IS_MAC) {
       robot.keyTap('v', ['command'])
     } else {
       robot.keyTap('v', ['control'])
     }
 
-    await randomDelayIn(400, 700)
+    // 粘贴后的停顿（等待内容显示，人类通常会看一下）
+    await randomDelayIn(500, 800)
 
-    // 发送前的停顿（模拟人类检查内容）
-    await randomDelayIn(200, 500)
+    // 阶段 7: 发送前的"检查内容"停顿（人类习惯确认发送内容）
+    await randomDelayIn(300, 600)
 
     // 发送
     robot.keyTap('enter')
 
-    // Windows 和 Mac 的后续清理
+    // 阶段 8: Windows 和 Mac 的后续清理
     if (IS_WINDOWS) {
-      await randomDelayIn(50, 100)
+      await randomDelayIn(80, 150)
       robot.keyTap('enter', ['control'])
-      await randomDelayIn(60, 100)
+      await randomDelayIn(80, 120)
       robot.keyTap('backspace')
     } else {
-      await randomDelayIn(40, 80)
+      await randomDelayIn(60, 100)
       robot.keyTap('enter', ['command'])
-      await randomDelayIn(30, 60)
+      await randomDelayIn(50, 80)
       robot.keyToggle('command', 'up')
-      await randomDelayIn(30, 60)
+      await randomDelayIn(50, 80)
       robot.keyTap('backspace')
     }
 
-    // 发送后的自然停顿
+    // 阶段 9: 发送后的自然停顿和鼠标移动
     await randomDelayIn(200, 400)
+    // 鼠标轻微移开（人类发送后通常会移开视线/鼠标）
+    const postSendX = x + (Math.random() - 0.5) * 30
+    const postSendY = y + (Math.random() - 0.5) * 30
+    robot.moveMouse(Math.round(postSendX), Math.round(postSendY))
 
     return true
   } catch (err: any) {
@@ -240,11 +315,35 @@ export function defaultClickPolicy(appType: AppType): ClickPolicy {
 }
 
 /**
+ * 点击前的"犹豫"停顿 - 模拟人类心理确认过程
+ * @param isImportant 是否是重要操作（如双击切换会话），犹豫时间更长
+ */
+async function hesitationPause(isImportant: boolean = false): Promise<void> {
+  if (isImportant) {
+    // 重要操作犹豫时间更长：300-600ms
+    await randomDelayIn(300, 600)
+  } else {
+    // 普通操作短暂停顿：100-250ms（约20%概率会有更长停顿）
+    if (Math.random() < 0.2) {
+      await randomDelayIn(180, 350)
+    } else {
+      await randomDelayIn(80, 180)
+    }
+  }
+}
+
+/**
  * 业务原子 3：点击红点区域激活未读消息（纯视觉路线）
  *
  * 参考 whatsapp-agent-demo 的 activeUnreadByClick：
  * - 微信场景：双击红点区域（单击只是展开，双击才会切换）
  * - 企业微信、通用 IM 场景：单击即可
+ *
+ * 人类行为特征：
+ * 1. 先移动到目标附近，再精细调整（不是直接到位）
+ * 2. 点击前有短暂犹豫（心理确认）
+ * 3. 双击间隔不固定（人类双击约100-300ms）
+ * 4. 点击后鼠标轻微移开（不会完全静止）
  *
  * 旧签名 (coords, appType) 仍然支持；想显式指定策略时传第三个参数。
  */
@@ -268,32 +367,32 @@ export async function activeUnreadByClickAction(
   })
 
   // 阶段 1: 移动到目标附近（非精确位置，模拟人类先大致定位）
-  const approachX = centerX + (Math.random() - 0.5) * 15
-  const approachY = centerY + (Math.random() - 0.5) * 15
+  const approachX = centerX + (Math.random() - 0.5) * 30  // 扩大范围
+  const approachY = centerY + (Math.random() - 0.5) * 30
   await humanLikeMove(approachX, approachY)
-  await randomDelayIn(80, 150)
+  await randomDelayIn(120, 220)  // 增加停顿
 
   // 阶段 2: 微调到精确位置（小幅度的精细调整）
-  const jitterX = (Math.random() - 0.5) * 6
-  const jitterY = (Math.random() - 0.5) * 6
+  const jitterX = (Math.random() - 0.5) * 8
+  const jitterY = (Math.random() - 0.5) * 8
   robot.moveMouse(Math.round(centerX + jitterX), Math.round(centerY + jitterY))
-  await randomDelayIn(60, 120)
+  await randomDelayIn(80, 160)
 
-  // 阶段 3: 点击前的短暂停顿（人类反应时间）
-  await randomDelayIn(50, 150)
+  // 阶段 3: 点击前的犹豫停顿（双击操作犹豫时间更长）
+  await hesitationPause(!isSingleClick)
 
   // 根据 policy 执行单击或双击
   await humanLikeClick('left')
   if (!isSingleClick) {
-    // 双击：第二次点击，间隔更随机化
-    await randomDelayIn(50, 120)
+    // 双击：第二次点击间隔随机化（人类双击间隔100-300ms，变化较大）
+    await randomDelayIn(100, 280)
     await humanLikeClick('left')
   }
 
   // 阶段 4: 点击后的小幅移动（模拟点击后自然的鼠标微调）
-  await randomDelayIn(100, 200)
-  const postClickX = centerX + (Math.random() - 0.5) * 10
-  const postClickY = centerY + (Math.random() - 0.5) * 10
+  await randomDelayIn(150, 300)
+  const postClickX = centerX + (Math.random() - 0.5) * 20
+  const postClickY = centerY + (Math.random() - 0.5) * 20
   robot.moveMouse(Math.round(postClickX), Math.round(postClickY))
 }
 
@@ -301,6 +400,11 @@ export async function activeUnreadByClickAction(
  * 业务原子 4：点击联系人列表第一个未读联系人
  *
  * 参考 whatsapp-agent-demo 的 clickUnreadContact
+ *
+ * 人类行为特征：
+ * 1. 移动轨迹有曲线，不是直线
+ * 2. 到达后有短暂停顿（确认位置）
+ * 3. 点击后鼠标自然移开
  */
 export async function clickUnreadContactAction(
   coordinates: [number, number]
@@ -315,27 +419,27 @@ export async function clickUnreadContactAction(
   })
 
   // 阶段 1: 移动到目标附近（非精确位置，模拟人类先大致定位）
-  const approachX = firstContactX + (Math.random() - 0.5) * 20
-  const approachY = firstContactY + (Math.random() - 0.5) * 20
+  const approachX = firstContactX + (Math.random() - 0.5) * 35  // 扩大范围
+  const approachY = firstContactY + (Math.random() - 0.5) * 35
   await humanLikeMove(approachX, approachY)
-  await randomDelayIn(100, 180)
+  await randomDelayIn(150, 280)  // 增加停顿
 
   // 阶段 2: 微调到精确位置（小幅度的精细调整）
-  const jitterX = (Math.random() - 0.5) * 8
-  const jitterY = (Math.random() - 0.5) * 8
+  const jitterX = (Math.random() - 0.5) * 10
+  const jitterY = (Math.random() - 0.5) * 10
   robot.moveMouse(Math.round(firstContactX + jitterX), Math.round(firstContactY + jitterY))
-  await randomDelayIn(80, 150)
+  await randomDelayIn(100, 180)
 
-  // 阶段 3: 点击前的短暂停顿（人类反应时间）
-  await randomDelayIn(80, 180)
+  // 阶段 3: 点击前的犹豫停顿
+  await hesitationPause(false)
 
   // 使用仿人点击
   await humanLikeClick('left')
 
   // 阶段 4: 点击后的小幅移动（模拟点击后自然的鼠标微调）
-  await randomDelayIn(150, 280)
-  const postClickX = firstContactX + (Math.random() - 0.5) * 15
-  const postClickY = firstContactY + (Math.random() - 0.5) * 15
+  await randomDelayIn(200, 350)
+  const postClickX = firstContactX + (Math.random() - 0.5) * 25
+  const postClickY = firstContactY + (Math.random() - 0.5) * 25
   robot.moveMouse(Math.round(postClickX), Math.round(postClickY))
 
   console.log('[clickUnreadContact] 点击完成')
