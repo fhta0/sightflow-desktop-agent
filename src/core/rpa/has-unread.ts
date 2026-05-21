@@ -513,8 +513,18 @@ export async function scanContactListForRedDots(
     // 按y坐标排序（从上到下）
     clusters.sort((a, b) => a.avgY - b.avgY)
 
+    // 过滤掉太小的聚类（< 3 个红色像素 = 噪点）
+    // 真正的红点角标至少包含几十个像素，即使 step=5 采样也会命中多个点
+    const MIN_PIXELS = 3
+    const validClusters = clusters.filter(c => c.points.length >= MIN_PIXELS)
+
+    if (validClusters.length === 0) {
+      console.log('[HasUnread] 红点聚类均太小，视为无红点')
+      return []
+    }
+
     // 转换为屏幕坐标（物理像素，用于点击）
-    const results: RedDotPosition[] = clusters.map(cluster => {
+    const results: RedDotPosition[] = validClusters.map(cluster => {
       // 计算相对于窗口的逻辑像素位置
       const logicalX = scanAreaLogical.x + cluster.avgX
       const logicalY = scanAreaLogical.y + cluster.avgY
