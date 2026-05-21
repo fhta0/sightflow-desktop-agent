@@ -26,7 +26,6 @@ scripts/*.js
 .Trashes
 ehthumbs.db
 Thumbs.db
-CLAUDE.md
 log.txt
 screenshot_*.png
 
