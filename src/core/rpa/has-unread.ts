@@ -345,8 +345,8 @@ interface RedDotPosition {
  * 返回当前可见联系人列表中所有检测到的红点位置
  *
  * @param appType 应用类型
- * @param contactListArea 联系人列表区域（相对于窗口的坐标）
- * @returns 红点位置数组，如果没找到返回空数组
+ * @param contactListArea 联系人列表区域（相对于窗口的逻辑像素坐标，不传则自动计算）
+ * @returns 红点位置数组（屏幕绝对坐标），如果没找到返回空数组
  */
 export async function scanContactListForRedDots(
   appType: AppType,
@@ -362,16 +362,50 @@ export async function scanContactListForRedDots(
       return []
     }
 
-    // 如果没有提供联系人列表区域，使用默认区域（中间列）
-    const scanArea = contactListArea || {
-      x: 0.08 * windowInfo.bounds.width,  // 约 8% 从左边缘开始（跳过左侧导航栏）
-      y: 0.12 * windowInfo.bounds.height, // 约 12% 从顶部开始（跳过搜索框）
-      width: 0.28 * windowInfo.bounds.width, // 约 28% 宽度（中间联系人列）
-      height: 0.75 * windowInfo.bounds.height // 约 75% 高度（联系人列表）
+    const { bounds, scaleFactor } = windowInfo
+    const isWindows = process.platform === 'win32'
+
+    // 计算扫描区域（逻辑像素，相对于窗口）
+    // 微信联系人列表在中间列，大致从 8% 到 36% 宽度，从 12% 到 90% 高度
+    const scanAreaLogical = contactListArea || {
+      x: bounds.width * 0.08,   // 跳过左侧导航栏（约 8%）
+      y: bounds.height * 0.12,  // 跳过搜索框（约 12%）
+      width: bounds.width * 0.28, // 中间联系人列宽度（约 28%）
+      height: bounds.height * 0.78 // 联系人列表高度（约 78%）
     }
 
-    // 截图联系人列表区域
-    const screenshotResult = await captureWechatWindow(appType, scanArea)
+    // 转换为屏幕绝对坐标（物理像素）用于截图
+    // Windows: bounds 是物理像素，需要转换
+    // macOS: bounds 是逻辑像素
+    let screenCrop
+    if (isWindows) {
+      // Windows: 截图需要物理像素坐标
+      screenCrop = {
+        x: Math.round((bounds.x + scanAreaLogical.x)),
+        y: Math.round((bounds.y + scanAreaLogical.y)),
+        width: Math.round(scanAreaLogical.width),
+        height: Math.round(scanAreaLogical.height)
+      }
+    } else {
+      // macOS: 截图使用逻辑像素
+      screenCrop = {
+        x: Math.round(bounds.x + scanAreaLogical.x),
+        y: Math.round(bounds.y + scanAreaLogical.y),
+        width: Math.round(scanAreaLogical.width),
+        height: Math.round(scanAreaLogical.height)
+      }
+    }
+
+    console.log('[HasUnread] 扫描区域计算:', {
+      platform: isWindows ? 'Windows' : 'macOS',
+      windowSize: { width: bounds.width, height: bounds.height },
+      logicalArea: scanAreaLogical,
+      screenCrop: screenCrop,
+      scaleFactor
+    })
+
+    // 截图整个窗口（不裁剪），然后自己裁剪
+    const screenshotResult = await captureWechatWindow(appType)
     if (!screenshotResult.success || !screenshotResult.screenshotBase64) {
       console.error('[HasUnread] 截图失败')
       return []
@@ -382,7 +416,38 @@ export async function scanContactListForRedDots(
       screenshotResult.screenshotBase64.replace(/^data:image\/\w+;base64,/, ''),
       'base64'
     )
-    const image = await Jimp.read(buffer)
+    const fullImage = await Jimp.read(buffer)
+
+    // 裁剪出联系人列表区域（相对于窗口的逻辑像素）
+    const cropX = Math.round(scanAreaLogical.x)
+    const cropY = Math.round(scanAreaLogical.y)
+    const cropWidth = Math.round(scanAreaLogical.width)
+    const cropHeight = Math.round(scanAreaLogical.height)
+
+    console.log('[HasUnread] 裁剪联系人列表区域:', {
+      fullSize: { width: fullImage.bitmap.width, height: fullImage.bitmap.height },
+      crop: { x: cropX, y: cropY, width: cropWidth, height: cropHeight }
+    })
+
+    // 检查裁剪区域是否有效
+    if (cropX + cropWidth > fullImage.bitmap.width || cropY + cropHeight > fullImage.bitmap.height) {
+      console.warn('[HasUnread] 裁剪区域超出图像范围，使用全图')
+      // 调整裁剪区域
+      const adjustedWidth = Math.min(cropWidth, fullImage.bitmap.width - cropX)
+      const adjustedHeight = Math.min(cropHeight, fullImage.bitmap.height - cropY)
+      if (adjustedWidth <= 0 || adjustedHeight <= 0) {
+        console.error('[HasUnread] 裁剪区域无效')
+        return []
+      }
+    }
+
+    // 裁剪联系人列表区域
+    const image = fullImage.crop({
+      x: cropX,
+      y: cropY,
+      w: cropWidth,
+      h: cropHeight
+    })
     const { width, height } = image.bitmap
 
     console.log(`[HasUnread] 扫描区域尺寸: ${width}x${height}`)
@@ -447,12 +512,29 @@ export async function scanContactListForRedDots(
     // 按y坐标排序（从上到下）
     clusters.sort((a, b) => a.avgY - b.avgY)
 
-    // 转换为屏幕坐标
-    const results: RedDotPosition[] = clusters.map(cluster => ({
-      x: Math.round(scanArea.x + cluster.avgX),
-      y: Math.round(scanArea.y + cluster.avgY),
-      confidence: cluster.points.length / redDots.length
-    }))
+    // 转换为屏幕坐标（物理像素，用于点击）
+    const results: RedDotPosition[] = clusters.map(cluster => {
+      // 计算相对于窗口的逻辑像素位置
+      const logicalX = scanAreaLogical.x + cluster.avgX
+      const logicalY = scanAreaLogical.y + cluster.avgY
+
+      // 转换为屏幕绝对坐标
+      if (isWindows) {
+        // Windows: 使用物理像素
+        return {
+          x: Math.round((bounds.x + logicalX)),
+          y: Math.round((bounds.y + logicalY)),
+          confidence: cluster.points.length / redDots.length
+        }
+      } else {
+        // macOS: 使用逻辑像素
+        return {
+          x: Math.round(bounds.x + logicalX),
+          y: Math.round(bounds.y + logicalY),
+          confidence: cluster.points.length / redDots.length
+        }
+      }
+    })
 
     console.log('[HasUnread] 扫描到红点:', {
       count: results.length,
