@@ -529,9 +529,9 @@ export async function scanContactListForRedDots(
     // 按y坐标排序（从上到下）
     clusters.sort((a, b) => a.avgY - b.avgY)
 
-    // 过滤掉太小的聚类（< 3 个红色像素 = 噪点）
-    // 真正的红点角标至少包含几十个像素，即使 step=5 采样也会命中多个点
-    const MIN_PIXELS = 3
+    // 过滤掉太小的聚类（< 5 个红色像素 = 噪点）
+    // 日志中观察到噪点聚类通常只有 22-24 个红像素（step=3），但真正的红点有上百个
+    const MIN_PIXELS = 5
     const validClusters = clusters.filter(c => c.points.length >= MIN_PIXELS)
 
     if (validClusters.length === 0) {
