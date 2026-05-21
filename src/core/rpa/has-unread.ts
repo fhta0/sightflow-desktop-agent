@@ -453,9 +453,10 @@ export async function scanContactListForRedDots(
     console.log(`[HasUnread] 扫描区域尺寸: ${width}x${height}`)
 
     // 扫描红点：联系人头像在每行左侧，红点在头像右上角
-    // 联系人列表可滚动，头像分布在整个高度，需要扫全区域
-    // 头像只在左侧约 1/3 宽度范围内，限制 x 范围减少误报
-    const avatarZoneWidth = Math.floor(width * 0.45)
+    // 裁剪区域从窗口左侧 x=72 开始，左侧约 40px 是导航栏图标（绿色/灰色圆形），需跳过
+    // 头像区域在裁剪图 x=40 ~ x=90 范围内
+    const AVATAR_ZONE_LEFT = 40
+    const AVATAR_ZONE_RIGHT = 115  // 头像宽度(~42px) + 红点(~10px) + 余量
 
     // 存储检测到的红点位置
     const redDots: { x: number; y: number; redIntensity: number }[] = []
@@ -463,7 +464,7 @@ export async function scanContactListForRedDots(
     // 扫描步长（每5个像素扫描一次，提高效率）
     const step = 5
 
-    for (let x = 0; x < avatarZoneWidth; x += step) {
+    for (let x = AVATAR_ZONE_LEFT; x < AVATAR_ZONE_RIGHT && x < width; x += step) {
       for (let y = 0; y < height; y += step) {
         const rgba = intToRGBA(image.getPixelColor(x, y))
         const { r, g, b, a } = rgba
