@@ -412,22 +412,33 @@ export async function clickUnreadContactAction(
   const robot = getRobot()
   if (!robot) return
 
-  const [firstContactX, firstContactY] = coordinates
+  // 联系人行约 60-70px 高，头像在左侧
+  // 随机把红点坐标（右上角）偏移到联系人行的不同位置，避免每次点击同一个点
+  const rowOffsetX = Math.random() * 100 + 30  // 向右偏移 30-130px（头像/名字区域）
+  const rowOffsetY = Math.random() * 40 + 10   // 向下偏移 10-50px（行内垂直位置）
+
+  const clickX = coordinates[0] - rowOffsetX  // 红点在头像右上角，向左下方偏移
+  const clickY = coordinates[1] + rowOffsetY
+
   console.log('[clickUnreadContact] 点击联系人', {
-    firstContactX,
-    firstContactY
+    redDotX: coordinates[0],
+    redDotY: coordinates[1],
+    clickX,
+    clickY,
+    offsetX: -rowOffsetX,
+    offsetY: rowOffsetY
   })
 
   // 阶段 1: 移动到目标附近（非精确位置，模拟人类先大致定位）
-  const approachX = firstContactX + (Math.random() - 0.5) * 35  // 扩大范围
-  const approachY = firstContactY + (Math.random() - 0.5) * 35
+  const approachX = clickX + (Math.random() - 0.5) * 35
+  const approachY = clickY + (Math.random() - 0.5) * 35
   await humanLikeMove(approachX, approachY)
-  await randomDelayIn(150, 280)  // 增加停顿
+  await randomDelayIn(150, 280)
 
   // 阶段 2: 微调到精确位置（小幅度的精细调整）
   const jitterX = (Math.random() - 0.5) * 10
   const jitterY = (Math.random() - 0.5) * 10
-  robot.moveMouse(Math.round(firstContactX + jitterX), Math.round(firstContactY + jitterY))
+  robot.moveMouse(Math.round(clickX + jitterX), Math.round(clickY + jitterY))
   await randomDelayIn(100, 180)
 
   // 阶段 3: 点击前的犹豫停顿
@@ -438,8 +449,8 @@ export async function clickUnreadContactAction(
 
   // 阶段 4: 点击后的小幅移动（模拟点击后自然的鼠标微调）
   await randomDelayIn(200, 350)
-  const postClickX = firstContactX + (Math.random() - 0.5) * 25
-  const postClickY = firstContactY + (Math.random() - 0.5) * 25
+  const postClickX = clickX + (Math.random() - 0.5) * 25
+  const postClickY = clickY + (Math.random() - 0.5) * 25
   robot.moveMouse(Math.round(postClickX), Math.round(postClickY))
 
   console.log('[clickUnreadContact] 点击完成')
