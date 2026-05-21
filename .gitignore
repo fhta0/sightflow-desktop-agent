@@ -29,3 +29,6 @@ Thumbs.db
 CLAUDE.md
 log.txt
 screenshot_*.png
+
+# TypeScript incremental build info
+*.tsbuildinf
