@@ -461,6 +461,12 @@ export async function clickUnreadContactAction(
 /**
  * 安全粘贴函数：写入剪贴板 → 粘贴 → 发送 → 恢复原有剪贴板内容
  * 防止剪贴板脏数据串行问题
+ *
+ * 人类行为特征：
+ * 1. 粘贴前有"准备"停顿
+ * 2. 粘贴后有"查看内容"停顿
+ * 3. 发送前有"确认"停顿
+ * 4. 发送后有自然停顿
  */
 export async function safePaste(text: string): Promise<boolean> {
   const robot = getRobot()
@@ -473,27 +479,33 @@ export async function safePaste(text: string): Promise<boolean> {
   const originalContent = clipboard.readText()
 
   try {
-    // 2. 写入新内容到剪贴板
+    // 2. 写入新内容到剪贴板（有准备停顿）
+    await randomDelayIn(80, 150)  // "准备粘贴"的心理停顿
     clipboard.writeText(text)
-    await delay(100)  // 剪贴板同步时间
+    await randomDelayIn(100, 200)  // 剪贴板同步 + 自然停顿
 
-    // 3. 执行物理粘贴与发送
+    // 3. 执行物理粘贴
     if (IS_MAC) {
       robot.keyTap('v', ['command'])
     } else {
       robot.keyTap('v', ['control'])
     }
-    await delay(150)  // 等待字符灌入输入框
+    await randomDelayIn(300, 600)  // 等待内容显示 + 人类"查看"停顿
 
+    // 4. 发送前的"确认"停顿（人类习惯检查内容）
+    await randomDelayIn(200, 500)
+
+    // 5. 执行发送
     robot.keyTap('enter')
-    await delay(300)  // 等待微信发送并渲染
+    await randomDelayIn(200, 400)  // 等待发送完成 + 自然停顿
 
     return true
   } catch (error: any) {
     console.error('[safePaste] 执行异常:', error)
     return false
   } finally {
-    // 4. 无论成功与否，必须保证剪贴板恢复，严防数据污染
+    // 6. 无论成功与否，必须保证剪贴板恢复，严防数据污染
+    await randomDelayIn(50, 100)  // 发送后的自然停顿
     if (originalContent && originalContent.trim() !== '') {
       clipboard.writeText(originalContent)
     } else {
@@ -517,25 +529,35 @@ export async function searchContactByKeyboard(contactName: string): Promise<bool
   }
 
   try {
-    // 1. Ctrl+F 激活搜索框
+    // 1. 搜索前的自然停顿
+    await randomDelayIn(100, 250)
+
+    // 2. Ctrl+F 激活搜索框
     if (IS_MAC) {
       robot.keyTap('f', ['command'])
     } else {
       robot.keyTap('f', ['control'])
     }
-    await delay(300)  // 等待搜索框激活
+    await randomDelayIn(300, 500)  // 等待搜索框激活
 
-    // 2. Ctrl+A 清空可能存在的旧内容
+    // 3. Ctrl+A 清空可能存在的旧内容
     if (IS_MAC) {
       robot.keyTap('a', ['command'])
     } else {
       robot.keyTap('a', ['control'])
     }
-    await delay(100)
+    await randomDelayIn(80, 150)
 
-    // 3. 输入联系人名称
-    robot.typeString(contactName)
-    await delay(300)  // 等待搜索结果渲染
+    // 4. 用剪贴板粘贴联系人名称（Windows 下 typeString 不支持中文）
+    await randomDelayIn(50, 100)  // "准备输入"停顿
+    clipboard.writeText(contactName)
+    await randomDelayIn(80, 150)
+    if (IS_MAC) {
+      robot.keyTap('v', ['command'])
+    } else {
+      robot.keyTap('v', ['control'])
+    }
+    await randomDelayIn(400, 700)  // 等待搜索结果渲染 + 人类"查看结果"停顿
 
     console.log(`[searchContactByKeyboard] 已搜索联系人: ${contactName}`)
     return true
@@ -547,6 +569,13 @@ export async function searchContactByKeyboard(contactName: string): Promise<bool
 
 /**
  * 组合函数：搜索联系人 → 点击第一条结果 → 输入并发送消息
+ *
+ * 人类行为特征：
+ * 1. 搜索前有自然停顿
+ * 2. 搜索后有"查看结果"停顿
+ * 3. 选择联系人前有犹豫停顿
+ * 4. 打开会话后等待聊天记录加载
+ * 5. 输入前有"思考回复"停顿
  *
  * @param contactName 联系人名称
  * @param message 要发送的消息
@@ -565,33 +594,54 @@ export async function sendMessageToContact(
   }
 
   try {
-    // 1. 键盘搜索联系人
+    // 阶段 1: 搜索前的自然停顿
+    await randomDelayIn(200, 400)
+
+    // 阶段 2: 键盘搜索联系人
     const searchOk = await searchContactByKeyboard(contactName)
     if (!searchOk) {
       console.error('[sendMessageToContact] 搜索失败')
       return false
     }
 
-    // 2. 按 Enter 点击第一条搜索结果
-    await delay(200)
-    robot.keyTap('enter')
-    await delay(500)  // 等待会话窗口打开
+    // 阶段 3: 搜索结果查看停顿（人类会看一眼搜索结果）
+    await randomDelayIn(400, 800)
 
-    // 3. 计算输入框坐标并仿人移动
+    // 阶段 4: 选择前的犹豫停顿（重要操作）
+    await hesitationPause(true)
+
+    // 阶段 5: 按 Enter 点击第一条搜索结果
+    robot.keyTap('enter')
+    await randomDelayIn(600, 1200)  // 等待会话窗口打开 + 聊天记录加载
+
+    // 阶段 6: 计算输入框坐标并仿人移动
     const [inputX, inputY] = getInputBoxCoords(bounds)
     await humanLikeMove(inputX, inputY)
-    await delay(100)
+    await randomDelayIn(150, 300)
 
-    // 4. 仿人点击聚焦输入框
+    // 阶段 7: 点击前的犹豫停顿
+    await hesitationPause(false)
+
+    // 阶段 8: 仿人点击聚焦输入框
     await humanLikeClick('left', 'careful')
-    await delay(300)  // 等待输入框激活
+    await randomDelayIn(300, 500)  // 等待输入框激活
 
-    // 5. 安全粘贴并发送消息
+    // 阶段 9: 输入前的"思考回复"停顿
+    await randomDelayIn(500, 1000)
+
+    // 阶段 10: 安全粘贴并发送消息
     const sendOk = await safePaste(message)
     if (!sendOk) {
       console.error('[sendMessageToContact] 发送失败')
       return false
     }
+
+    // 阶段 11: 发送后的自然停顿和鼠标移动
+    await randomDelayIn(200, 500)
+    // 鼠标轻微移开（人类发送后通常会移开视线/鼠标）
+    const postSendX = inputX + (Math.random() - 0.5) * 30
+    const postSendY = inputY + (Math.random() - 0.5) * 30
+    robot.moveMouse(Math.round(postSendX), Math.round(postSendY))
 
     console.log(`[sendMessageToContact] 成功发送消息给 ${contactName}`)
     return true
