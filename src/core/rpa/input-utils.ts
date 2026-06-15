@@ -1,6 +1,6 @@
 import { clipboard } from 'electron'
 import { AppType } from './types'
-import { getWindowInfo, getInputBoxCoords } from './window-utils'
+import { getWindowInfo, getInputBoxCoords, activateWechatWindow } from './window-utils'
 import { getInputAreaFromCache } from './vision-utils'
 const IS_WINDOWS = process.platform === 'win32'
 const IS_MAC = process.platform === 'darwin'
@@ -571,6 +571,7 @@ export async function searchContactByKeyboard(contactName: string): Promise<bool
  * 组合函数：搜索联系人 → 点击第一条结果 → 输入并发送消息
  *
  * 人类行为特征：
+ * 0. 先激活微信窗口（切换窗口有自然停顿）
  * 1. 搜索前有自然停顿
  * 2. 搜索后有"查看结果"停顿
  * 3. 选择联系人前有犹豫停顿
@@ -580,12 +581,14 @@ export async function searchContactByKeyboard(contactName: string): Promise<bool
  * @param contactName 联系人名称
  * @param message 要发送的消息
  * @param bounds 窗口边界（用于计算输入框坐标）
+ * @param appType 应用类型（wechat/weework），默认 'wechat'
  * @returns 是否成功发送
  */
 export async function sendMessageToContact(
   contactName: string,
   message: string,
-  bounds: { x: number; y: number; width: number; height: number }
+  bounds: { x: number; y: number; width: number; height: number },
+  appType: AppType = 'wechat'
 ): Promise<boolean> {
   const robot = getRobot()
   if (!robot) {
@@ -594,6 +597,15 @@ export async function sendMessageToContact(
   }
 
   try {
+    // 阶段 0: 激活微信窗口（确保窗口在前台）
+    console.log(`[sendMessageToContact] 正在激活 ${appType} 窗口...`)
+    const activated = await activateWechatWindow(appType)
+    if (!activated) {
+      console.warn('[sendMessageToContact] 窗口激活失败，继续尝试发送...')
+    }
+    // 激活窗口后的自然停顿（人类切换窗口需要时间）
+    await randomDelayIn(300, 600)
+
     // 阶段 1: 搜索前的自然停顿
     await randomDelayIn(200, 400)
 

@@ -255,3 +255,61 @@ export function getInputBoxCoords(bounds: { x: number; y: number; width: number;
     Math.round(chatArea.y + chatArea.height * INPUT_BOX_OFFSET.heightRatio)
   ]
 }
+
+/**
+ * 激活微信窗口（将其置于前台）
+ * 用于确保自动化操作时微信窗口可见且可交互
+ *
+ * @param appType 应用类型（wechat/weework）
+ * @returns 是否成功激活窗口
+ */
+export async function activateWechatWindow(appType: AppType = 'wechat'): Promise<boolean> {
+  try {
+    // Windows: 使用 node-window-manager 的 bringToTop
+    if (IS_WINDOWS) {
+      const { windowManager } = require('node-window-manager')
+      const windows = windowManager.getWindows()
+
+      // 找到微信窗口
+      const wechatWindow = windows.find((window: any) =>
+        matchWechatType(window.getTitle(), appType) && window.isVisible()
+      )
+
+      if (!wechatWindow) {
+        console.error(`[activateWechatWindow] 未找到 ${appType} 窗口`)
+        return false
+      }
+
+      // 将窗口置于前台
+      wechatWindow.bringToTop()
+      console.log(`[activateWechatWindow] 已激活 ${appType} 窗口 (Windows)`)
+      return true
+    }
+
+    // macOS: 使用 AppleScript 激活应用
+    if (IS_MAC) {
+      const appName = appType === 'wechat' ? 'WeChat' : 'WeChat Work'
+      const { exec } = require('child_process')
+      const script = `tell application "${appName}" to activate`
+
+      await new Promise<void>((resolve, reject) => {
+        exec(`osascript -e '${script}'`, (error: any) => {
+          if (error) {
+            console.error('[activateWechatWindow] macOS AppleScript error:', error.message)
+            reject(error)
+          } else {
+            console.log(`[activateWechatWindow] 已激活 ${appType} 窗口 (macOS)`)
+            resolve()
+          }
+        })
+      })
+      return true
+    }
+
+    console.warn('[activateWechatWindow] 非Windows/macOS平台，无法激活窗口')
+    return false
+  } catch (err: any) {
+    console.error('[activateWechatWindow] 激活窗口失败:', err.message)
+    return false
+  }
+}

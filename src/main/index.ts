@@ -857,8 +857,8 @@ const skillEngineController: SkillEngineControllerWithSend = {
         return { ok: false, error: 'window_not_found' }
       }
 
-      // 调用组合发送函数
-      const success = await sendMessageToContact(contact, message, windowInfo.bounds)
+      // 调用组合发送函数（指定微信类型）
+      const success = await sendMessageToContact(contact, message, windowInfo.bounds, 'wechat')
 
       if (success) {
         return { ok: true }
