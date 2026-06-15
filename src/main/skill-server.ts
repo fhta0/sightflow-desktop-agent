@@ -36,6 +36,29 @@ export interface SkillPauseResult {
   message?: string
 }
 
+export interface SendMessageRequest {
+  contact: string   // 联系人备注名 或 群名
+  message: string   // 要发送的消息文本
+}
+
+export interface SendMessageResponse {
+  ok: boolean
+  error?: 'contact_not_found' | 'send_failed' | 'operation_in_progress' | 'window_not_found' | 'missing_contact_or_message' | 'invalid_json'
+  message?: string
+  elapsed_ms?: number
+}
+
+export interface SendMessageResult {
+  ok: boolean
+  error?: string
+  elapsed_ms?: number
+}
+
+export interface SkillEngineControllerWithSend extends SkillEngineController {
+  /** 发送消息给指定联系人 */
+  sendMessage(contact: string, message: string): Promise<SendMessageResult>
+}
+
 export interface SkillEngineController {
   /** 启动引擎；返回业务级结果，不抛异常 */
   start(): Promise<SkillStartResult>
@@ -63,14 +86,14 @@ function jsonResponse(
   res.end(JSON.stringify(body))
 }
 
-/** 读取 POST body（最大 1KB，防止滥用；当前所有端点都不需要 body） */
+/** 读取 POST body（最大 4KB，支持较长消息） */
 function readBody(req: http.IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = []
     let size = 0
     req.on('data', (chunk: Buffer) => {
       size += chunk.length
-      if (size > 1024) {
+      if (size > 4096) {
         req.destroy()
         reject(new Error('body_too_large'))
         return
@@ -183,6 +206,61 @@ function handleStatus(res: http.ServerResponse): void {
   })
 }
 
+async function handleSendMessage(res: http.ServerResponse, body: string): Promise<void> {
+  if (!controller) {
+    jsonResponse(res, 503, { ok: false, error: 'controller_unavailable' })
+    return
+  }
+
+  if (skillOperationLock) {
+    jsonResponse(res, 409, { ok: false, error: 'operation_in_progress' })
+    return
+  }
+
+  // 解析请求体
+  let request: SendMessageRequest
+  try {
+    request = JSON.parse(body) as SendMessageRequest
+  } catch {
+    jsonResponse(res, 400, { ok: false, error: 'invalid_json' })
+    return
+  }
+
+  if (!request.contact || !request.message) {
+    jsonResponse(res, 400, { ok: false, error: 'missing_contact_or_message' })
+    return
+  }
+
+  skillOperationLock = true
+  const startTime = Date.now()
+
+  try {
+    const result = await (controller as SkillEngineControllerWithSend).sendMessage(request.contact, request.message)
+
+    if (result.ok) {
+      jsonResponse(res, 200, {
+        ok: true,
+        elapsed_ms: Date.now() - startTime
+      })
+    } else {
+      jsonResponse(res, 500, {
+        ok: false,
+        error: result.error || 'send_failed',
+        elapsed_ms: Date.now() - startTime
+      })
+    }
+  } catch (error: any) {
+    console.error('[Skill Server] send-message error:', error)
+    jsonResponse(res, 500, {
+      ok: false,
+      error: 'send_failed',
+      message: error?.message || String(error)
+    })
+  } finally {
+    skillOperationLock = false
+  }
+}
+
 async function requestHandler(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
   const { method, url } = req
 
@@ -205,6 +283,9 @@ async function requestHandler(req: http.IncomingMessage, res: http.ServerRespons
       await handlePause(res)
     } else if (url === '/skill/status' && method === 'GET') {
       handleStatus(res)
+    } else if (url === '/skill/send-message' && method === 'POST') {
+      const body = await readBody(req)
+      await handleSendMessage(res, body)
     } else {
       jsonResponse(res, 404, { ok: false, error: 'not_found' })
     }
@@ -214,7 +295,7 @@ async function requestHandler(req: http.IncomingMessage, res: http.ServerRespons
   }
 }
 
-export function startSkillServer(engineController: SkillEngineController): void {
+export function startSkillServer(engineController: SkillEngineControllerWithSend): void {
   if (server) {
     console.warn('[Skill Server] already started, skip')
     return
