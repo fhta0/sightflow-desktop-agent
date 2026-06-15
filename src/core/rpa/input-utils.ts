@@ -1,6 +1,6 @@
 import { clipboard } from 'electron'
 import { AppType } from './types'
-import { getWindowInfo } from './window-utils'
+import { getWindowInfo, getInputBoxCoords } from './window-utils'
 import { getInputAreaFromCache } from './vision-utils'
 const IS_WINDOWS = process.platform === 'win32'
 const IS_MAC = process.platform === 'darwin'
@@ -456,4 +456,148 @@ export async function clickUnreadContactAction(
   robot.moveMouse(Math.round(postClickX), Math.round(postClickY))
 
   console.log('[clickUnreadContact] 点击完成')
+}
+
+/**
+ * 安全粘贴函数：写入剪贴板 → 粘贴 → 发送 → 恢复原有剪贴板内容
+ * 防止剪贴板脏数据串行问题
+ */
+export async function safePaste(text: string): Promise<boolean> {
+  const robot = getRobot()
+  if (!robot) {
+    console.error('[safePaste] RobotJS 缺失')
+    return false
+  }
+
+  // 备份当前剪贴板内容
+  const originalContent = clipboard.readText()
+
+  try {
+    // 写入新内容
+    clipboard.writeText(text)
+    await delay(100)  // 剪贴板同步时间
+
+    // 粘贴操作
+    if (IS_MAC) {
+      robot.keyTap('v', ['command'])
+    } else {
+      robot.keyTap('v', ['control'])
+    }
+    await delay(150)  // 等待字符灌入输入框
+
+    // 发送
+    robot.keyTap('enter')
+    await delay(300)  // 等待微信发送并渲染
+
+    return true
+  } catch (error: any) {
+    console.error('[safePaste] 执行异常:', error)
+    return false
+  } finally {
+    // 恢复原有剪贴板内容
+    if (originalContent && originalContent.trim() !== '') {
+      clipboard.writeText(originalContent)
+    } else {
+      clipboard.clear()
+    }
+  }
+}
+
+/**
+ * 通过 Ctrl+F 键盘搜索定位联系人
+ * 解决联系人沉底不可见问题
+ *
+ * @param contactName 联系人名称（备注名或群名）
+ * @returns 是否成功激活搜索
+ */
+export async function searchContactByKeyboard(contactName: string): Promise<boolean> {
+  const robot = getRobot()
+  if (!robot) {
+    console.error('[searchContactByKeyboard] RobotJS 缺失')
+    return false
+  }
+
+  try {
+    // Step 1: Ctrl+F 激活搜索框
+    if (IS_MAC) {
+      robot.keyTap('f', ['command'])
+    } else {
+      robot.keyTap('f', ['control'])
+    }
+    await delay(300)  // 等待搜索框激活
+
+    // Step 2: 输入联系人名称
+    // 先清空可能存在的旧内容
+    if (IS_MAC) {
+      robot.keyTap('a', ['command'])
+    } else {
+      robot.keyTap('a', ['control'])
+    }
+    await delay(100)
+
+    // 输入名称
+    robot.typeString(contactName)
+    await delay(300)  // 等待搜索结果渲染
+
+    console.log(`[searchContactByKeyboard] 已搜索联系人: ${contactName}`)
+    return true
+  } catch (error: any) {
+    console.error('[searchContactByKeyboard] 执行异常:', error)
+    return false
+  }
+}
+
+/**
+ * 组合函数：搜索联系人 → 点击第一条结果 → 输入并发送消息
+ *
+ * @param contactName 联系人名称
+ * @param message 要发送的消息
+ * @param bounds 窗口边界（用于计算输入框坐标）
+ * @returns 是否成功发送
+ */
+export async function sendMessageToContact(
+  contactName: string,
+  message: string,
+  bounds: { x: number; y: number; width: number; height: number }
+): Promise<boolean> {
+  const robot = getRobot()
+  if (!robot) {
+    console.error('[sendMessageToContact] RobotJS 缺失')
+    return false
+  }
+
+  try {
+    // Step 1: 键盘搜索联系人
+    const searchOk = await searchContactByKeyboard(contactName)
+    if (!searchOk) {
+      console.error('[sendMessageToContact] 搜索失败')
+      return false
+    }
+
+    // Step 2: 点击第一条搜索结果（向下箭头 + Enter）
+    // 搜索结果通常聚焦第一条，直接 Enter 即可
+    await delay(200)
+    robot.keyTap('enter')
+    await delay(500)  // 等待会话窗口打开
+
+    // Step 3: 计算输入框坐标并点击聚焦
+    const [inputX, inputY] = getInputBoxCoords(bounds)
+    await humanLikeMove(inputX, inputY)
+    await delay(100)
+    await humanLikeClick('left', 'careful')
+    await delay(300)  // 等待输入框激活
+
+    // Step 4: 安全粘贴并发送
+    const sendOk = await safePaste(message)
+    if (!sendOk) {
+      console.error('[sendMessageToContact] 发送失败')
+      return false
+    }
+
+    console.log(`[sendMessageToContact] 成功发送消息给 ${contactName}`)
+    return true
+  } catch (error: any) {
+    console.error('[sendMessageToContact] 执行异常:', error)
+    return false
+  }
 }
