@@ -26,9 +26,14 @@ import {
   loadInstalledProvider
 } from './provider-bundle'
 import {
-  SkillEngineController,
+  sendMessageToContact
+} from '../core/rpa/input-utils'
+import { getWindowInfo } from '../core/rpa/window-utils'
+import {
+  SkillEngineControllerWithSend,
   SkillPauseResult,
   SkillStartResult,
+  SendMessageResult,
   startSkillServer,
   stopSkillServer
 } from './skill-server'
@@ -838,10 +843,33 @@ function persistRegionsAndStickyStrategy(
   notifyCaptureRegionsUpdated(appType, regions)
 }
 
-const skillEngineController: SkillEngineController = {
+const skillEngineController: SkillEngineControllerWithSend = {
   start: () => startEngineCore(),
   pause: () => stopEngineCore('skill_pause'),
-  isRunning: () => runtime?.isRunning() ?? false
+  isRunning: () => runtime?.isRunning() ?? false,
+
+  // 新增 sendMessage 方法
+  sendMessage: async (contact: string, message: string): Promise<SendMessageResult> => {
+    try {
+      // 获取微信窗口信息
+      const windowInfo = await getWindowInfo('wechat', false)
+      if (!windowInfo || !windowInfo.bounds) {
+        return { ok: false, error: 'window_not_found' }
+      }
+
+      // 调用组合发送函数
+      const success = await sendMessageToContact(contact, message, windowInfo.bounds)
+
+      if (success) {
+        return { ok: true }
+      } else {
+        return { ok: false, error: 'send_failed' }
+      }
+    } catch (error: any) {
+      console.error('[sendMessage] 执行异常:', error)
+      return { ok: false, error: error?.message || 'unknown_error' }
+    }
+  }
 }
 
 // In this file you can include the rest of your app's specific main process
