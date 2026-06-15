@@ -493,7 +493,7 @@ export async function safePaste(text: string): Promise<boolean> {
     console.error('[safePaste] 执行异常:', error)
     return false
   } finally {
-    // 4. 恢复原有剪贴板内容
+    // 4. 无论成功与否，必须保证剪贴板恢复，严防数据污染
     if (originalContent && originalContent.trim() !== '') {
       clipboard.writeText(originalContent)
     } else {
