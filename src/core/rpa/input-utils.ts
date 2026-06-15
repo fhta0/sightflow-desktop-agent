@@ -477,7 +477,7 @@ export async function safePaste(text: string): Promise<boolean> {
     clipboard.writeText(text)
     await delay(100)  // 剪贴板同步时间
 
-    // 3. 执行粘贴操作
+    // 3. 执行物理粘贴与发送
     if (IS_MAC) {
       robot.keyTap('v', ['command'])
     } else {
@@ -485,7 +485,6 @@ export async function safePaste(text: string): Promise<boolean> {
     }
     await delay(150)  // 等待字符灌入输入框
 
-    // 4. 按 Enter 发送消息
     robot.keyTap('enter')
     await delay(300)  // 等待微信发送并渲染
 
@@ -494,7 +493,7 @@ export async function safePaste(text: string): Promise<boolean> {
     console.error('[safePaste] 执行异常:', error)
     return false
   } finally {
-    // 5. 恢复原有剪贴板内容
+    // 4. 恢复原有剪贴板内容
     if (originalContent && originalContent.trim() !== '') {
       clipboard.writeText(originalContent)
     } else {
