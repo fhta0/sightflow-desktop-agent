@@ -130,6 +130,13 @@ body {
   flex-shrink: 0;
 }
 
+.app-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-left: 8px;
+}
+
 .app-header .version {
   font-size: 10px;
   color: var(--text-muted);

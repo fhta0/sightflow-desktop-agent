@@ -6,7 +6,7 @@ export type Locale = 'zh' | 'en'
 const translations = {
   zh: {
     // Header
-    'app.title': 'SightFlow Desktop',
+    'app.title': '微信-Driverless',
     'app.version': 'v0.1.0',
 
     // Tabs
@@ -67,7 +67,7 @@ const translations = {
     'toast.startFailed': '启动失败',
   },
   en: {
-    'app.title': 'SightFlow Desktop',
+    'app.title': 'WeChat-Driverless',
     'app.version': 'v0.1.0',
 
     'tab.control': 'Control',

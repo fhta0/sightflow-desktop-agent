@@ -161,7 +161,8 @@ function App() {
   return (
     <div className="app">
       <header className="app-header">
-        <img src={logoUrl} alt="SightFlow" className="app-logo" />
+        <img src={logoUrl} alt="WeChat-Driverless" className="app-logo" />
+        <span className="app-title">{t('app.title')}</span>
       </header>
 
       <div className="app-content">
@@ -368,7 +369,7 @@ function SettingsWindow(): React.JSX.Element {
     <div className="settings-shell">
       <aside className="settings-sidebar">
         <div className="settings-sidebar-brand">
-          <img src={logoUrl} alt="SightFlow" className="app-logo" />
+          <img src={logoUrl} alt="WeChat-Driverless" className="app-logo" />
           <span>设置</span>
         </div>
         <button
