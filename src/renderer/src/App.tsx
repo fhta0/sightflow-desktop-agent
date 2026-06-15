@@ -180,7 +180,6 @@ function ControlPanel() {
   const [logs, setLogs] = useState<LogEntry[]>([])
   const [autopilotEnabled, setAutopilotEnabled] = useState(true)
   const [serverPort, setServerPort] = useState(12680)
-  const [glueLayerConnected, setGlueLayerConnected] = useState(false)
   const logRef = useRef<HTMLDivElement>(null)
 
   // 监听粘合层日志
@@ -188,7 +187,6 @@ function ControlPanel() {
     const cleanup = window.electron?.on('glue-layer:log', (data: LogEntry) => {
       const time = new Date().toLocaleTimeString('en-US', { hour12: false })
       setLogs((prev) => [...prev.slice(-99), { ...data, time }])
-      setGlueLayerConnected(true) // 收到日志说明粘合层已连接
     })
     return cleanup
   }, [])
@@ -254,15 +252,6 @@ function ControlPanel() {
 
   return (
     <div className="fade-in">
-      {/* 服务状态 */}
-      <div className="status-indicator running">
-        <div className="status-dot running" />
-        <span className="status-text">发送服务运行中</span>
-        <span className="server-port" style={{ marginLeft: 'auto', color: '#4a4a60', fontSize: '11px' }}>
-          端口: {serverPort}
-        </span>
-      </div>
-
       {/* 自动驾驶开关 */}
       <div className="card autopilot-card" style={{ marginBottom: 12 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -302,24 +291,6 @@ function ControlPanel() {
         </div>
       </div>
 
-      {/* 粘合层状态 */}
-      <div className="card" style={{ marginBottom: 12, padding: '10px 14px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <span
-            style={{
-              display: 'inline-block',
-              width: 8,
-              height: 8,
-              borderRadius: 4,
-              background: glueLayerConnected ? '#10b981' : '#fbbf24'
-            }}
-          />
-          <span style={{ fontSize: '12px', color: glueLayerConnected ? '#8a8aa0' : '#fbbf24' }}>
-            {glueLayerConnected ? '粘合层已连接' : '等待粘合层连接...'}
-          </span>
-        </div>
-      </div>
-
       {/* 消息日志 */}
       <div className="card">
         <div className="card-title">消息日志</div>
@@ -349,15 +320,40 @@ function ControlPanel() {
 }
 
 function BottomBar() {
+  const [glueLayerConnected, setGlueLayerConnected] = useState(false)
+
+  // 监听粘合层日志来判断连接状态
+  useEffect(() => {
+    const cleanup = window.electron?.on('glue-layer:log', () => {
+      setGlueLayerConnected(true)
+    })
+    return cleanup
+  }, [])
+
   return (
     <div className="bottom-bar">
+      {/* 左侧：发送服务状态 */}
+      <div className="bottom-status-left">
+        <span className="status-dot-running" />
+        <span className="status-label">发送服务运行中</span>
+      </div>
+
+      {/* 中间：设置按钮 */}
       <button
-        className="bottom-btn bottom-btn-settings"
+        className="bottom-btn-settings"
         onClick={() => window.electron?.invoke('settings:open')}
         title="设置"
       >
         <GearIcon />
       </button>
+
+      {/* 右侧：粘合层状态 */}
+      <div className="bottom-status-right">
+        <span className={`status-dot-${glueLayerConnected ? 'connected' : 'waiting'}`} />
+        <span className={`status-label-${glueLayerConnected ? 'connected' : 'waiting'}`}>
+          {glueLayerConnected ? '粘合层已连接' : '等待连接...'}
+        </span>
+      </div>
     </div>
   )
 }

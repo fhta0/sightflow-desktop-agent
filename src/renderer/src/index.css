@@ -113,10 +113,9 @@ body {
   align-items: center;
   gap: 12px;
   padding: 14px 20px;
-  padding-top: 40px;
+  padding-top: 38px;
   -webkit-app-region: drag;
   user-select: none;
-  border-bottom: 1px solid var(--glass-border);
   background: var(--bg-frosted);
   backdrop-filter: blur(20px);
   position: relative;
@@ -728,15 +727,85 @@ textarea.form-input {
 .bottom-bar {
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 8px;
-  padding: 16px 20px;
-  padding-bottom: 20px;
-  border-top: 1px solid var(--glass-border);
+  justify-content: space-between;
+  padding: 12px 20px;
+  padding-bottom: 16px;
   background: var(--bg-frosted);
   backdrop-filter: blur(20px);
   position: relative;
   z-index: 10;
+}
+
+.bottom-status-left,
+.bottom-status-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.status-dot-running {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 6px var(--accent-glow);
+}
+
+.status-dot-connected {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.status-dot-waiting {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--warning);
+}
+
+.status-label {
+  color: var(--text-secondary);
+}
+
+.status-label-connected {
+  color: var(--text-secondary);
+}
+
+.status-label-waiting {
+  color: var(--warning);
+}
+
+.bottom-btn-settings {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid var(--glass-border);
+  border-radius: 50%;
+  background: var(--bg-glass-heavy);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  -webkit-app-region: no-drag;
+}
+
+.bottom-btn-settings:hover {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.08);
+  border-color: var(--glass-border-light);
+}
+
+.bottom-btn-settings svg {
+  width: 18px;
+  height: 18px;
 }
 
 .bottom-btn {
