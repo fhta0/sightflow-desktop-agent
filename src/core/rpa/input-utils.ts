@@ -469,15 +469,15 @@ export async function safePaste(text: string): Promise<boolean> {
     return false
   }
 
-  // 备份当前剪贴板内容
+  // 1. 备份当前剪贴板内容
   const originalContent = clipboard.readText()
 
   try {
-    // 写入新内容
+    // 2. 写入新内容到剪贴板
     clipboard.writeText(text)
     await delay(100)  // 剪贴板同步时间
 
-    // 粘贴操作
+    // 3. 执行粘贴操作
     if (IS_MAC) {
       robot.keyTap('v', ['command'])
     } else {
@@ -485,7 +485,7 @@ export async function safePaste(text: string): Promise<boolean> {
     }
     await delay(150)  // 等待字符灌入输入框
 
-    // 发送
+    // 4. 按 Enter 发送消息
     robot.keyTap('enter')
     await delay(300)  // 等待微信发送并渲染
 
@@ -494,7 +494,7 @@ export async function safePaste(text: string): Promise<boolean> {
     console.error('[safePaste] 执行异常:', error)
     return false
   } finally {
-    // 恢复原有剪贴板内容
+    // 5. 恢复原有剪贴板内容
     if (originalContent && originalContent.trim() !== '') {
       clipboard.writeText(originalContent)
     } else {
@@ -518,7 +518,7 @@ export async function searchContactByKeyboard(contactName: string): Promise<bool
   }
 
   try {
-    // Step 1: Ctrl+F 激活搜索框
+    // 1. Ctrl+F 激活搜索框
     if (IS_MAC) {
       robot.keyTap('f', ['command'])
     } else {
@@ -526,8 +526,7 @@ export async function searchContactByKeyboard(contactName: string): Promise<bool
     }
     await delay(300)  // 等待搜索框激活
 
-    // Step 2: 输入联系人名称
-    // 先清空可能存在的旧内容
+    // 2. Ctrl+A 清空可能存在的旧内容
     if (IS_MAC) {
       robot.keyTap('a', ['command'])
     } else {
@@ -535,7 +534,7 @@ export async function searchContactByKeyboard(contactName: string): Promise<bool
     }
     await delay(100)
 
-    // 输入名称
+    // 3. 输入联系人名称
     robot.typeString(contactName)
     await delay(300)  // 等待搜索结果渲染
 
@@ -567,27 +566,28 @@ export async function sendMessageToContact(
   }
 
   try {
-    // Step 1: 键盘搜索联系人
+    // 1. 键盘搜索联系人
     const searchOk = await searchContactByKeyboard(contactName)
     if (!searchOk) {
       console.error('[sendMessageToContact] 搜索失败')
       return false
     }
 
-    // Step 2: 点击第一条搜索结果（向下箭头 + Enter）
-    // 搜索结果通常聚焦第一条，直接 Enter 即可
+    // 2. 按 Enter 点击第一条搜索结果
     await delay(200)
     robot.keyTap('enter')
     await delay(500)  // 等待会话窗口打开
 
-    // Step 3: 计算输入框坐标并点击聚焦
+    // 3. 计算输入框坐标并仿人移动
     const [inputX, inputY] = getInputBoxCoords(bounds)
     await humanLikeMove(inputX, inputY)
     await delay(100)
+
+    // 4. 仿人点击聚焦输入框
     await humanLikeClick('left', 'careful')
     await delay(300)  // 等待输入框激活
 
-    // Step 4: 安全粘贴并发送
+    // 5. 安全粘贴并发送消息
     const sendOk = await safePaste(message)
     if (!sendOk) {
       console.error('[sendMessageToContact] 发送失败')
