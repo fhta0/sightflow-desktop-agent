@@ -851,14 +851,22 @@ const skillEngineController: SkillEngineControllerWithSend = {
   // 新增 sendMessage 方法
   sendMessage: async (contact: string, message: string): Promise<SendMessageResult> => {
     try {
+      console.log('[sendMessage] 开始发送:', contact, message.substring(0, 30))
+
       // 获取微信窗口信息
       const windowInfo = await getWindowInfo('wechat', false)
+      console.log('[sendMessage] 窗口信息:', windowInfo ? '找到' : '未找到')
+
       if (!windowInfo || !windowInfo.bounds) {
+        console.error('[sendMessage] 未找到微信窗口')
         return { ok: false, error: 'window_not_found' }
       }
 
+      console.log('[sendMessage] 窗口 bounds:', windowInfo.bounds)
+
       // 调用组合发送函数（指定微信类型）
       const success = await sendMessageToContact(contact, message, windowInfo.bounds, 'wechat')
+      console.log('[sendMessage] 发送结果:', success ? '成功' : '失败')
 
       if (success) {
         return { ok: true }

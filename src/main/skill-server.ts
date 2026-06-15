@@ -14,8 +14,7 @@
 import * as http from 'http'
 import { BrowserWindow } from 'electron'
 
-const PRIMARY_PORT = 12680
-const FALLBACK_PORT = 12681
+const FIXED_PORT = 12680  // 固定端口，不再 fallback
 
 export type SkillStartReason =
   | 'no_vision_key'
@@ -92,7 +91,7 @@ let skillOperationLock = false
 let autopilotEnabled = true
 
 /** 当前监听端口 */
-let currentPort = PRIMARY_PORT
+let currentPort = FIXED_PORT
 
 function jsonResponse(
   res: http.ServerResponse,
@@ -399,22 +398,20 @@ export function startSkillServer(engineController: SkillEngineControllerWithSend
   })
 
   server.on('error', (err: NodeJS.ErrnoException) => {
-    if (err.code === 'EADDRINUSE' && server) {
-      console.warn(
-        `[Skill Server] 端口 ${PRIMARY_PORT} 被占用，尝试 fallback 端口 ${FALLBACK_PORT}`
-      )
-      currentPort = FALLBACK_PORT
-      server.listen(FALLBACK_PORT, '127.0.0.1', () => {
-        console.log(`[Skill Server] 已启动，监听 http://127.0.0.1:${FALLBACK_PORT}`)
-      })
+    if (err.code === 'EADDRINUSE') {
+      console.error(`[Skill Server] 端口 ${FIXED_PORT} 已被占用，可能已有实例运行`)
+      console.error('[Skill Server] 请关闭现有实例后再启动，或检查是否有其他程序占用该端口')
+      // 退出进程，避免多实例
+      process.exit(1)
     } else {
       console.error('[Skill Server] 启动失败:', err)
+      process.exit(1)
     }
   })
 
-  server.listen(PRIMARY_PORT, '127.0.0.1', () => {
-    currentPort = PRIMARY_PORT
-    console.log(`[Skill Server] 已启动，监听 http://127.0.0.1:${PRIMARY_PORT}`)
+  server.listen(FIXED_PORT, '127.0.0.1', () => {
+    currentPort = FIXED_PORT
+    console.log(`[Skill Server] 已启动，监听 http://127.0.0.1:${FIXED_PORT}`)
   })
 }
 
