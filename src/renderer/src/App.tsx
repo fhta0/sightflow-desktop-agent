@@ -5,68 +5,27 @@ import './index.css'
 
 interface LogEntry {
   time: string
-  type: 'thinking' | 'reply' | 'skip' | 'error'
+  type: 'receive' | 'reply' | 'skip' | 'error' | 'info' | 'thinking'
+  contact?: string
   content: string
 }
 
-type EngineStatus = 'idle' | 'running' | 'error'
 type SettingsSection = 'base' | 'agent'
 type AppType = 'wechat' | 'wework' | 'dingtalk' | 'lark' | 'slack' | 'telegram' | 'generic'
 
-type CaptureStrategy = 'auto' | 'vlm' | 'box-select'
-
-interface ScreenRect {
-  x: number
-  y: number
-  width: number
-  height: number
-}
-
-interface BoxRegions {
-  contactList: ScreenRect
-  chatMain: ScreenRect
-  inputBox: ScreenRect
-  unreadIndicator: ScreenRect | null
-  displayId?: number
-  scaleFactor?: number
-  capturedAt: number
-}
-
-const APP_TYPE_LABELS: Record<AppType, string> = {
-  wechat: '微信',
-  wework: '企业微信',
-  dingtalk: '钉钉',
-  lark: '飞书 / Lark',
-  slack: 'Slack',
-  telegram: 'Telegram',
-  generic: '其他桌面应用'
-}
-
-const VLM_SUPPORTED_APPS: AppType[] = ['wechat', 'wework']
-
-function isVlmSupported(appType: AppType): boolean {
-  return VLM_SUPPORTED_APPS.includes(appType)
-}
-
-interface ProviderSchemaField {
-  type: 'string' | 'password' | 'select' | 'boolean'
-  title: string
-  default?: string | boolean
-  enum?: string[]
-}
-
-interface ProviderManifest {
-  apiVersion: 1
-  id: string
-  name: string
-  version: string
-  entry: string
-  capabilities: ['chat']
-  configSchema: {
-    type: 'object'
-    properties: Record<string, ProviderSchemaField>
-    required?: string[]
+interface AppSettings {
+  locale: 'zh' | 'en'
+  appType: AppType
+  vision: {
+    apiKey: string
   }
+  chatProvider: {
+    manifestUrl: string
+    installed: InstalledProviderInfo | null
+    config: Record<string, any>
+  }
+  defaultCaptureStrategy: 'auto' | 'vlm' | 'box-select'
+  capture: Partial<Record<AppType, any>>
 }
 
 interface InstalledProviderInfo {
@@ -115,26 +74,6 @@ interface ProviderHubResult {
   catalog?: ProviderHubCache | null
 }
 
-interface PerAppCapture {
-  strategy: CaptureStrategy
-  regions: BoxRegions | null
-}
-
-interface AppSettings {
-  locale: 'zh' | 'en'
-  appType: AppType
-  vision: {
-    apiKey: string
-  }
-  chatProvider: {
-    manifestUrl: string
-    installed: InstalledProviderInfo | null
-    config: Record<string, any>
-  }
-  defaultCaptureStrategy: CaptureStrategy
-  capture: Partial<Record<AppType, PerAppCapture>>
-}
-
 const BUILTIN_PROVIDER_CATALOG: ProviderCatalogItem[] = [
   {
     id: 'doubao',
@@ -177,18 +116,6 @@ const BUILTIN_PROVIDER_CATALOG: ProviderCatalogItem[] = [
   }
 ]
 
-const PlayIcon = () => (
-  <svg viewBox="0 0 24 24" fill="currentColor">
-    <path d="M8 5.14v14l11-7-11-7z" />
-  </svg>
-)
-
-const StopIcon = () => (
-  <svg viewBox="0 0 24 24" fill="currentColor">
-    <rect x="6" y="6" width="12" height="12" rx="2" />
-  </svg>
-)
-
 const GearIcon = () => (
   <svg
     viewBox="0 0 24 24"
@@ -221,16 +148,6 @@ const RefreshIcon = (): React.JSX.Element => (
 
 function App() {
   const isSettingsWindow = new URLSearchParams(window.location.search).get('window') === 'settings'
-  const [status, setStatus] = useState<EngineStatus>('idle')
-
-  // Sync UI status with engine state changes triggered out-of-band
-  // (e.g. remote OpenClaw start/pause via the local skill HTTP server).
-  useEffect(() => {
-    const cleanup = window.electron?.on('engine:state', (data: { status: 'running' | 'idle' }) => {
-      setStatus(data.status === 'running' ? 'running' : 'idle')
-    })
-    return cleanup
-  }, [])
 
   if (isSettingsWindow) {
     return (
@@ -248,155 +165,178 @@ function App() {
       </header>
 
       <div className="app-content">
-        <ControlPanel status={status} setStatus={setStatus} />
+        <ControlPanel />
       </div>
 
-      <BottomBar status={status} setStatus={setStatus} />
+      <BottomBar />
 
       <Toast />
     </div>
   )
 }
 
-function ControlPanel({
-  status,
-  setStatus
-}: {
-  status: EngineStatus
-  setStatus: (s: EngineStatus) => void
-}) {
+function ControlPanel() {
   const [logs, setLogs] = useState<LogEntry[]>([])
+  const [autopilotEnabled, setAutopilotEnabled] = useState(true)
+  const [serverPort, setServerPort] = useState(12680)
+  const [glueLayerConnected, setGlueLayerConnected] = useState(false)
   const logRef = useRef<HTMLDivElement>(null)
 
-  // 首屏目标应用 + 框选状态：直接读 / 写 settings，让用户上手第一步就能完成。
-  const [appType, setAppType] = useState<AppType>('wechat')
-  const [regions, setRegions] = useState<BoxRegions | null>(null)
-  const [openingWizard, setOpeningWizard] = useState(false)
-
-  const reloadRegionsForApp = useCallback(async (type: AppType) => {
-    const r = (await window.electron?.invoke('capture:getRegions', type)) as BoxRegions | null
-    setRegions(r ?? null)
+  // 监听粘合层日志
+  useEffect(() => {
+    const cleanup = window.electron?.on('glue-layer:log', (data: LogEntry) => {
+      const time = new Date().toLocaleTimeString('en-US', { hour12: false })
+      setLogs((prev) => [...prev.slice(-99), { ...data, time }])
+      setGlueLayerConnected(true) // 收到日志说明粘合层已连接
+    })
+    return cleanup
   }, [])
 
-  // 初次加载：读出当前 appType + 对应的框选区域
+  // 监听自动驾驶状态变化
+  useEffect(() => {
+    const cleanup = window.electron?.on('autopilot:state', (data: { enabled: boolean }) => {
+      setAutopilotEnabled(data.enabled)
+    })
+    return cleanup
+  }, [])
+
+  // 初始获取自动驾驶状态
   useEffect(() => {
     void (async () => {
-      const settings = (await window.electron?.invoke('settings:getAll')) as
-        | AppSettings
-        | undefined
-      const initial = settings?.appType || 'wechat'
-      setAppType(initial)
-      await reloadRegionsForApp(initial)
+      try {
+        const response = await fetch('http://127.0.0.1:12680/skill/autopilot')
+        if (response.ok) {
+          const data = await response.json()
+          setAutopilotEnabled(data.enabled)
+          setServerPort(12680)
+        }
+      } catch {
+        // 尝试 fallback 端口
+        try {
+          const response = await fetch('http://127.0.0.1:12681/skill/autopilot')
+          if (response.ok) {
+            const data = await response.json()
+            setAutopilotEnabled(data.enabled)
+            setServerPort(12681)
+          }
+        } catch {
+          // 无法连接到 Skill Server
+        }
+      }
     })()
-  }, [reloadRegionsForApp])
-
-  // 监听 main 进程的"区域已更新"事件——比如向导刚跑完
-  useEffect(() => {
-    const cleanup = window.electron?.on(
-      'capture:regions-updated',
-      (data: { appType: AppType; regions: BoxRegions | null }) => {
-        if (data.appType === appType) setRegions(data.regions)
-      }
-    )
-    return cleanup
-  }, [appType])
-
-  const handleAppTypeChange = useCallback(
-    async (next: AppType) => {
-      if (status === 'running') return
-      setAppType(next)
-      await window.electron?.invoke('settings:set', { appType: next })
-      await window.electron?.invoke('engine:updateConfig', {
-        ...((await window.electron?.invoke('settings:getAll')) as AppSettings),
-        appType: next
-      })
-      await reloadRegionsForApp(next)
-    },
-    [reloadRegionsForApp, status]
-  )
-
-  const handleOpenWizard = useCallback(async () => {
-    if (status === 'running') return
-    setOpeningWizard(true)
-    try {
-      const result = (await window.electron?.invoke('capture:openSetupWizard', {
-        appType
-      })) as { success: boolean; reason?: string; regions?: BoxRegions } | undefined
-      if (result?.success && result.regions) {
-        setRegions(result.regions)
-        showToast('已保存框选区域', 'success')
-      } else if (result?.reason === 'cancelled' || result?.reason === 'closed') {
-        showToast('框选已取消', 'error')
-      } else {
-        showToast('框选失败', 'error')
-      }
-    } finally {
-      setOpeningWizard(false)
-    }
-  }, [appType, status])
-
-  const addLog = useCallback((type: LogEntry['type'], content: string) => {
-    const time = new Date().toLocaleTimeString('en-US', { hour12: false })
-    setLogs((prev) => [...prev.slice(-99), { time, type, content }])
   }, [])
 
+  // 自动滚动日志
   useEffect(() => {
     if (logRef.current) {
       logRef.current.scrollTop = logRef.current.scrollHeight
     }
   }, [logs])
 
-  useEffect(() => {
-    const cleanup = window.electron?.on('engine:log', (data: { type: string; content: string }) => {
-      addLog(data.type as LogEntry['type'], data.content)
-
-      if (data.type === 'error' && data.content.includes('引擎无法启动')) {
-        setStatus('error')
+  // 切换自动驾驶状态
+  const toggleAutopilot = useCallback(async () => {
+    try {
+      const response = await fetch(`http://127.0.0.1:${serverPort}/skill/autopilot`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: !autopilotEnabled })
+      })
+      if (response.ok) {
+        const data = await response.json()
+        setAutopilotEnabled(data.enabled)
+        showToast(data.enabled ? '自动驾驶已启用' : '自动驾驶已禁用', 'success')
       }
-    })
-    return cleanup
-  }, [addLog, setStatus])
-
-  const statusLabel =
-    status === 'running'
-      ? t('status.running')
-      : status === 'error'
-        ? t('status.error')
-        : t('status.idle')
-
-  const isVlm = isVlmSupported(appType)
-  const captureReady = isVlm || regions !== null
+    } catch (e) {
+      showToast('切换失败', 'error')
+    }
+  }, [autopilotEnabled, serverPort])
 
   return (
     <div className="fade-in">
-      <div className={`status-indicator ${status}`}>
-        <div className={`status-dot ${status}`} />
-        <span className="status-text">{statusLabel}</span>
+      {/* 服务状态 */}
+      <div className="status-indicator running">
+        <div className="status-dot running" />
+        <span className="status-text">发送服务运行中</span>
+        <span className="server-port" style={{ marginLeft: 'auto', color: '#4a4a60', fontSize: '11px' }}>
+          端口: {serverPort}
+        </span>
       </div>
 
-      <TargetAppQuickCard
-        appType={appType}
-        regions={regions}
-        captureReady={captureReady}
-        isVlm={isVlm}
-        openingWizard={openingWizard}
-        running={status === 'running'}
-        onAppTypeChange={handleAppTypeChange}
-        onOpenWizard={handleOpenWizard}
-      />
+      {/* 自动驾驶开关 */}
+      <div className="card autopilot-card" style={{ marginBottom: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div>
+            <div className="card-title">自动驾驶</div>
+            <div className="autopilot-desc" style={{ fontSize: '12px', color: '#8a8aa0', marginTop: '4px' }}>
+              {autopilotEnabled ? '自动回复消息中' : '暂停自动回复，手动回复模式'}
+            </div>
+          </div>
+          <button
+            className={`autopilot-toggle ${autopilotEnabled ? 'enabled' : 'disabled'}`}
+            onClick={toggleAutopilot}
+            style={{
+              width: '56px',
+              height: '28px',
+              borderRadius: '14px',
+              border: 'none',
+              background: autopilotEnabled ? '#10b981' : '#3a3a50',
+              cursor: 'pointer',
+              position: 'relative',
+              transition: 'background 250ms'
+            }}
+          >
+            <span
+              style={{
+                position: 'absolute',
+                top: '3px',
+                left: autopilotEnabled ? '30px' : '3px',
+                width: '22px',
+                height: '22px',
+                borderRadius: '11px',
+                background: '#fff',
+                transition: 'left 250ms'
+              }}
+            />
+          </button>
+        </div>
+      </div>
 
+      {/* 粘合层状态 */}
+      <div className="card" style={{ marginBottom: 12, padding: '10px 14px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span
+            style={{
+              display: 'inline-block',
+              width: 8,
+              height: 8,
+              borderRadius: 4,
+              background: glueLayerConnected ? '#10b981' : '#fbbf24'
+            }}
+          />
+          <span style={{ fontSize: '12px', color: glueLayerConnected ? '#8a8aa0' : '#fbbf24' }}>
+            {glueLayerConnected ? '粘合层已连接' : '等待粘合层连接...'}
+          </span>
+        </div>
+      </div>
+
+      {/* 消息日志 */}
       <div className="card">
-        <div className="card-title">{t('control.log')}</div>
+        <div className="card-title">消息日志</div>
         <div className="message-log" ref={logRef}>
           {logs.length === 0 ? (
-            <div className="message-log-empty">{t('control.log.empty')}</div>
+            <div className="message-log-empty">等待消息...</div>
           ) : (
             logs.map((entry, i) => (
               <div className="log-entry" key={i}>
                 <span className="log-time">{entry.time}</span>
                 <span className={`log-type ${entry.type}`}>
-                  {t(`control.log.${entry.type}` as never)}
+                  {entry.type === 'receive' ? '收到' :
+                   entry.type === 'reply' ? '回复' :
+                   entry.type === 'skip' ? '跳过' :
+                   entry.type === 'error' ? '错误' :
+                   entry.type === 'info' ? '信息' : '思考'}
                 </span>
+                {entry.contact && <span style={{ color: '#a0a0b8', marginRight: '4px' }}>{entry.contact}:</span>}
                 <span>{entry.content}</span>
               </div>
             ))
@@ -407,183 +347,9 @@ function ControlPanel({
   )
 }
 
-interface TargetAppQuickCardProps {
-  appType: AppType
-  regions: BoxRegions | null
-  captureReady: boolean
-  isVlm: boolean
-  openingWizard: boolean
-  running: boolean
-  onAppTypeChange: (t: AppType) => void
-  onOpenWizard: () => void
-}
-
-// 首屏的"目标应用 + 框选"快捷卡片：让新用户开箱即用，不用先翻设置。
-function TargetAppQuickCard({
-  appType,
-  regions,
-  captureReady,
-  isVlm,
-  openingWizard,
-  running,
-  onAppTypeChange,
-  onOpenWizard
-}: TargetAppQuickCardProps): React.JSX.Element {
-  const statusText = isVlm
-    ? '自动识别（VLM）'
-    : regions
-      ? '已框选 3 / 3 个区域'
-      : '尚未框选'
-
-  return (
-    <div className="card" style={{ marginBottom: 12 }}>
-      <div className="card-title">目标应用</div>
-
-      <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
-        <select
-          className="form-input"
-          value={appType}
-          onChange={(e) => onAppTypeChange(e.target.value as AppType)}
-          disabled={running || openingWizard}
-          style={{ flex: 1 }}
-        >
-          {(Object.keys(APP_TYPE_LABELS) as AppType[]).map((type) => (
-            <option key={type} value={type}>
-              {APP_TYPE_LABELS[type]}
-              {!isVlmSupported(type) ? '（框选）' : ''}
-            </option>
-          ))}
-        </select>
-
-        {!isVlm && (
-          <button
-            className="btn btn-primary"
-            onClick={onOpenWizard}
-            disabled={running || openingWizard}
-            style={{
-              whiteSpace: 'nowrap',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 6
-            }}
-          >
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.4"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden
-            >
-              {regions ? (
-                // 重新框选 — 旋转刷新图标
-                <>
-                  <path d="M21 12a9 9 0 1 1-3-6.7" />
-                  <path d="M21 4v5h-5" />
-                </>
-              ) : (
-                // 开始框选 — 矩形 + 十字
-                <>
-                  <rect x="3" y="3" width="18" height="18" rx="2" />
-                  <line x1="12" y1="8" x2="12" y2="16" />
-                  <line x1="8" y1="12" x2="16" y2="12" />
-                </>
-              )}
-            </svg>
-            {openingWizard ? '打开中...' : regions ? '重新框选' : '开始框选'}
-          </button>
-        )}
-      </div>
-
-      <div
-        className="form-hint"
-        style={{
-          marginTop: 10,
-          display: 'flex',
-          alignItems: 'center',
-          gap: 8,
-          color: captureReady ? '#94a3b8' : '#fbbf24'
-        }}
-      >
-        <span
-          style={{
-            display: 'inline-block',
-            width: 8,
-            height: 8,
-            borderRadius: 999,
-            background: captureReady ? '#34d399' : '#fbbf24'
-          }}
-        />
-        {statusText}
-        {!isVlm && !regions ? '：点右侧按钮先把 3 个关键区域圈出来' : ''}
-      </div>
-    </div>
-  )
-}
-
-function BottomBar({
-  status,
-  setStatus
-}: {
-  status: EngineStatus
-  setStatus: (s: EngineStatus) => void
-}) {
-  const handleStart = useCallback(async () => {
-    const settings = (await window.electron?.invoke('settings:getAll')) as AppSettings | undefined
-    if (!settings?.vision?.apiKey) {
-      showToast(t('control.start.novisionkey'), 'error')
-      return
-    }
-    // 没装自定义 provider → 走内置 doubao（getInstalled 会返回 isBuiltinDefault: true）
-    const providerInfo = (await window.electron?.invoke('provider:getInstalled')) as {
-      manifest: ProviderManifest | null
-      isBuiltinDefault?: boolean
-    }
-    // doubao 默认共享视觉密钥，required 已剥离 apiKey
-    const required = providerInfo?.manifest?.configSchema?.required || []
-    const missing = required.find((key) => {
-      const value = settings.chatProvider.config?.[key]
-      return value === undefined || value === null || value === ''
-    })
-    if (missing) {
-      showToast(`${t('control.start.missingProviderField')}: ${missing}`, 'error')
-      return
-    }
-
-    const result = await window.electron?.invoke('engine:start', settings)
-    if (result?.success) {
-      setStatus('running')
-      showToast(t('toast.engineStarted'), 'success')
-    } else {
-      setStatus('error')
-      showToast(result?.error || t('toast.startFailed'), 'error')
-    }
-  }, [setStatus])
-
-  const handleStop = useCallback(async () => {
-    await window.electron?.invoke('engine:stop')
-    setStatus('idle')
-    showToast(t('toast.engineStopped'), 'success')
-  }, [setStatus])
-
-  const running = status === 'running'
-
+function BottomBar() {
   return (
     <div className="bottom-bar">
-      {running ? (
-        <button className="bottom-btn bottom-btn-stop" onClick={handleStop}>
-          <StopIcon />
-          {t('control.stop')}
-        </button>
-      ) : (
-        <button className="bottom-btn bottom-btn-play" onClick={handleStart}>
-          <PlayIcon />
-          {t('control.start')}
-        </button>
-      )}
       <button
         className="bottom-btn bottom-btn-settings"
         onClick={() => window.electron?.invoke('settings:open')}

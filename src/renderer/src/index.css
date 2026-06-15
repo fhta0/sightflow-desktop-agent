@@ -584,8 +584,10 @@ button:focus-visible {
 
 .log-type.thinking { color: var(--warning); }
 .log-type.reply { color: var(--accent); }
+.log-type.receive { color: #60a5fa; }
 .log-type.skip { color: var(--text-muted); }
 .log-type.error { color: var(--error); }
+.log-type.info { color: var(--text-secondary); }
 
 /* ─── Form Elements ─── */
 .form-group { margin-bottom: 14px; }

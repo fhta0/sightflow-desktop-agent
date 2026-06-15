@@ -1,15 +1,18 @@
 /**
- * Skill HTTP Server — 为 OpenClaw 提供本地 HTTP 控制接口
+ * Skill HTTP Server — 为 OpenClaw / Python 粘合层提供本地 HTTP 控制接口
  *
  * 仅监听 127.0.0.1，提供以下端点：
- * - POST /skill/start  — 启动智能体
+ * - POST /skill/start  — 启动智能体（SightFlow 内置引擎）
  * - POST /skill/pause  — 暂停智能体
  * - GET  /skill/status — 查询当前运行状态
+ * - GET/POST /skill/autopilot — 查询/设置自动驾驶状态（Python 粘合层）
+ * - POST /skill/send-message — 发送消息给联系人
+ * - POST /skill/log — 接收粘合层日志并广播到 UI
  *
  * 所有调用都会路由到 SkillEngineController 提供的回调里执行。
- * 回调本身复用主进程已有的引擎启动 / 停止 / 状态查询逻辑，避免逻辑重复。
  */
 import * as http from 'http'
+import { BrowserWindow } from 'electron'
 
 const PRIMARY_PORT = 12680
 const FALLBACK_PORT = 12681
@@ -54,6 +57,17 @@ export interface SendMessageResult {
   elapsed_ms?: number
 }
 
+export interface AutopilotStatus {
+  enabled: boolean
+}
+
+export interface GlueLayerLog {
+  type: 'receive' | 'reply' | 'skip' | 'error' | 'info'
+  contact?: string
+  content: string
+  timestamp?: number
+}
+
 export interface SkillEngineControllerWithSend extends SkillEngineController {
   /** 发送消息给指定联系人 */
   sendMessage(contact: string, message: string): Promise<SendMessageResult>
@@ -73,6 +87,12 @@ let controller: SkillEngineController | null = null
 
 /** 并发锁：同一时间只能有一个 start/pause 操作 */
 let skillOperationLock = false
+
+/** 自动驾驶状态：默认启用 */
+let autopilotEnabled = true
+
+/** 当前监听端口 */
+let currentPort = PRIMARY_PORT
 
 function jsonResponse(
   res: http.ServerResponse,
@@ -202,8 +222,65 @@ function handleStatus(res: http.ServerResponse): void {
   }
   jsonResponse(res, 200, {
     ok: true,
-    status: controller.isRunning() ? 'running' : 'stopped'
+    status: controller.isRunning() ? 'running' : 'stopped',
+    port: currentPort
   })
+}
+
+function handleAutopilotGet(res: http.ServerResponse): void {
+  jsonResponse(res, 200, {
+    ok: true,
+    enabled: autopilotEnabled
+  })
+}
+
+async function handleAutopilotSet(res: http.ServerResponse, body: string): Promise<void> {
+  let request: { enabled: boolean }
+  try {
+    request = JSON.parse(body) as { enabled: boolean }
+  } catch {
+    jsonResponse(res, 400, { ok: false, error: 'invalid_json' })
+    return
+  }
+
+  autopilotEnabled = request.enabled
+
+  // 广播状态变化到所有窗口
+  broadcastToAllWindows('autopilot:state', { enabled: autopilotEnabled })
+
+  jsonResponse(res, 200, {
+    ok: true,
+    enabled: autopilotEnabled
+  })
+}
+
+async function handleLog(res: http.ServerResponse, body: string): Promise<void> {
+  let logEntry: GlueLayerLog
+  try {
+    logEntry = JSON.parse(body) as GlueLayerLog
+  } catch {
+    jsonResponse(res, 400, { ok: false, error: 'invalid_json' })
+    return
+  }
+
+  // 添加时间戳（如果没有）
+  if (!logEntry.timestamp) {
+    logEntry.timestamp = Date.now()
+  }
+
+  // 广播日志到所有窗口
+  broadcastToAllWindows('glue-layer:log', logEntry)
+
+  jsonResponse(res, 200, { ok: true })
+}
+
+/** 广播消息到所有 BrowserWindow */
+function broadcastToAllWindows(channel: string, data: unknown): void {
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) {
+      win.webContents.send(channel, data)
+    }
+  }
 }
 
 async function handleSendMessage(res: http.ServerResponse, body: string): Promise<void> {
@@ -283,9 +360,17 @@ async function requestHandler(req: http.IncomingMessage, res: http.ServerRespons
       await handlePause(res)
     } else if (url === '/skill/status' && method === 'GET') {
       handleStatus(res)
+    } else if (url === '/skill/autopilot' && method === 'GET') {
+      handleAutopilotGet(res)
+    } else if (url === '/skill/autopilot' && method === 'POST') {
+      const body = await readBody(req)
+      await handleAutopilotSet(res, body)
     } else if (url === '/skill/send-message' && method === 'POST') {
       const body = await readBody(req)
       await handleSendMessage(res, body)
+    } else if (url === '/skill/log' && method === 'POST') {
+      const body = await readBody(req)
+      await handleLog(res, body)
     } else {
       jsonResponse(res, 404, { ok: false, error: 'not_found' })
     }
@@ -318,6 +403,7 @@ export function startSkillServer(engineController: SkillEngineControllerWithSend
       console.warn(
         `[Skill Server] 端口 ${PRIMARY_PORT} 被占用，尝试 fallback 端口 ${FALLBACK_PORT}`
       )
+      currentPort = FALLBACK_PORT
       server.listen(FALLBACK_PORT, '127.0.0.1', () => {
         console.log(`[Skill Server] 已启动，监听 http://127.0.0.1:${FALLBACK_PORT}`)
       })
@@ -327,8 +413,19 @@ export function startSkillServer(engineController: SkillEngineControllerWithSend
   })
 
   server.listen(PRIMARY_PORT, '127.0.0.1', () => {
+    currentPort = PRIMARY_PORT
     console.log(`[Skill Server] 已启动，监听 http://127.0.0.1:${PRIMARY_PORT}`)
   })
+}
+
+/** 获取当前自动驾驶状态 */
+export function getAutopilotEnabled(): boolean {
+  return autopilotEnabled
+}
+
+/** 获取当前监听端口 */
+export function getSkillServerPort(): number {
+  return currentPort
 }
 
 export function stopSkillServer(): void {
