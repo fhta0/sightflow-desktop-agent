@@ -97,7 +97,25 @@ npm run dev:test-switch      # Test window switching
 
 - Settings stored via `electron-store` with schema in `src/main/index.ts`
 - Provider Hub URL: `https://sightflow.dev/provider-hub.json` (configurable via env `SIGHTFLOW_PROVIDER_HUB_URL`)
-- Volcengine Ark defaults: Model `doubao-seed-2-0-lite-260215`, Base URL `https://ark.cn-beijing.volces.com/api/v3`
+- Volcengine Ark defaults: Model `doubao-seed-2.0-lite`, Base URL `https://ark.cn-beijing.volces.com/api/plan/v3`
+
+## Skill HTTP Server (Remote Control)
+
+A local HTTP API on port 12680 (fallback to 12681 if occupied) enables external control:
+- `GET /skill/status` — Query running status
+- `POST /skill/start` — Start the engine
+- `POST /skill/pause` — Stop the engine
+
+Used by external tools (e.g., OpenClaw) for automation integration. Defined in `src/main/skill-server.ts`.
+
+## IPC Channel Naming
+
+Channels follow namespace patterns:
+- `settings:*` — Configuration persistence (`getAll`, `get`, `set`, `open`)
+- `engine:*` — Runtime control (`start`, `stop`, `status`, `updateConfig`, `testConnection`, `log`, `state`)
+- `capture:*` — Box-select wizard (`openSetupWizard`, `getRegions`, `resetRegions`, `regions-updated`)
+- `provider:*` — Provider installation (`installFromUrl`, `getInstalled`)
+- `providerHub:*` — Provider catalog (`getCatalog`, `update`)
 
 ## Testing/Debugging
 
@@ -132,3 +150,5 @@ resources/
 - **Settings Normalization**: `normalizeSettings()` migrates legacy config shapes
 - **Async Generators**: Providers yield events via `async *run()` for streaming UI updates
 - **State Machine**: GenericChannelSession uses explicit state transitions with `wait_retry` delays
+- **i18n**: Simple locale system in `src/renderer/src/i18n.ts` with `t(key)` function; supports `zh`/`en`
+- **Settings Window**: Separate BrowserWindow with query param `?window=settings`, same preload/React bundle
