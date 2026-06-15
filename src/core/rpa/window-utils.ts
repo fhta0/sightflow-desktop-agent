@@ -217,3 +217,41 @@ export function getWindowInfoSync(appType: AppType): {
     scaleFactor: cached.result.display?.scaleFactor || 1
   }
 }
+
+/**
+ * 从窗口边界计算聊天区域
+ * 微信左侧边栏固定宽度约 310~350px（导航 + 联系人列表）
+ */
+export function calcChatArea(bounds: { x: number; y: number; width: number; height: number }): {
+  x: number
+  y: number
+  width: number
+  height: number
+} {
+  const LEFT_SIDEBAR_WIDTH = 350  // 实测校准值
+
+  return {
+    x: bounds.x + LEFT_SIDEBAR_WIDTH,
+    y: bounds.y,
+    width: bounds.width - LEFT_SIDEBAR_WIDTH,
+    height: bounds.height
+  }
+}
+
+/**
+ * 计算输入框点击坐标（相对于聊天区域）
+ * 输入框位置：横向居中，垂直靠下（约 85% 高度处）
+ */
+export function getInputBoxCoords(bounds: { x: number; y: number; width: number; height: number }): [number, number] {
+  const chatArea = calcChatArea(bounds)
+
+  const INPUT_BOX_OFFSET = {
+    widthRatio: 0.5,   // 横向居中
+    heightRatio: 0.85  // 垂直靠下
+  }
+
+  return [
+    Math.round(chatArea.x + chatArea.width * INPUT_BOX_OFFSET.widthRatio),
+    Math.round(chatArea.y + chatArea.height * INPUT_BOX_OFFSET.heightRatio)
+  ]
+}
