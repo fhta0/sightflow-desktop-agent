@@ -61,7 +61,7 @@ export interface AutopilotStatus {
 }
 
 export interface GlueLayerLog {
-  type: 'receive' | 'reply' | 'skip' | 'error' | 'info'
+  type: 'receive' | 'reply' | 'skip' | 'error' | 'info' | 'monitor' | 'heartbeat'
   contact?: string
   content: string
   timestamp?: number
@@ -267,8 +267,9 @@ async function handleLog(res: http.ServerResponse, body: string): Promise<void> 
     logEntry.timestamp = Date.now()
   }
 
-  // 广播日志到所有窗口
-  broadcastToAllWindows('glue-layer:log', logEntry)
+  // 广播日志到所有窗口 - 手动序列化为 JSON 字符串避免 IPC 编码问题
+  const logJson = JSON.stringify(logEntry)
+  broadcastToAllWindows('glue-layer:log', logJson)
 
   jsonResponse(res, 200, { ok: true })
 }
@@ -288,10 +289,8 @@ async function handleSendMessage(res: http.ServerResponse, body: string): Promis
     return
   }
 
-  if (skillOperationLock) {
-    jsonResponse(res, 409, { ok: false, error: 'operation_in_progress' })
-    return
-  }
+  // sendMessage 不需要并发锁，因为它是独立的发送操作
+  // skillOperationLock 只用于 start/pause 操作
 
   // 解析请求体
   let request: SendMessageRequest
@@ -307,7 +306,6 @@ async function handleSendMessage(res: http.ServerResponse, body: string): Promis
     return
   }
 
-  skillOperationLock = true
   const startTime = Date.now()
 
   try {
@@ -332,8 +330,6 @@ async function handleSendMessage(res: http.ServerResponse, body: string): Promis
       error: 'send_failed',
       message: error?.message || String(error)
     })
-  } finally {
-    skillOperationLock = false
   }
 }
 
