@@ -31,6 +31,8 @@ export interface WechatAgentConfig {
   advanced: {
     wx_cli_path: string
   }
+  /** 解密失败标志（loadConfig 设置，saveConfig 忽略） */
+  _decryptFailed?: boolean
 }
 
 export function getConfigPath(): string {
@@ -56,7 +58,7 @@ export function loadConfig(): WechatAgentConfig | null {
       } catch (e) {
         console.error('[WechatAgentConfig] API Key 解密失败:', e)
         // 不覆盖 api_key，保留加密值；设置标志让 UI 提示用户
-        ;(data as any)._decryptFailed = true
+        data._decryptFailed = true
       }
     }
     return data

@@ -8,6 +8,7 @@ interface WechatAgentConfig {
   groups: { monitor: Array<{ room_id: string; name: string }> }
   ai: { api_url: string; api_key: string; api_key_format: string; model: string }
   advanced: { wx_cli_path: string }
+  _decryptFailed?: boolean
 }
 
 interface GroupOption {
@@ -28,12 +29,12 @@ export function WechatAgentSettings(): React.JSX.Element {
   const [saved, setSaved] = useState(false)
   const [currentAlert, setCurrentAlert] = useState<AlertData | null>(null)
 
-  const loadConfig = async (): Promise<boolean> => {
+  const loadConfig = async (): Promise<WechatAgentConfig | null> => {
     const loaded = await window.electron?.invoke('wechat-agent:loadConfig')
     if (loaded) {
-      setConfig(loaded)
+      const loadedConfig = loaded as WechatAgentConfig
       // 检测解密失败标志
-      if ((loaded as any)._decryptFailed) {
+      if (loadedConfig._decryptFailed) {
         setCurrentAlert({
           severity: 'warning',
           code: 'api_key_decrypt_failed',
@@ -41,16 +42,16 @@ export function WechatAgentSettings(): React.JSX.Element {
           timestamp: Date.now()
         })
         // 清空无法解密的 key，让用户重新输入
-        setConfig(prev => ({ ...prev, ai: { ...prev.ai, api_key: '' } }))
+        loadedConfig.ai.api_key = ''
       }
-      return true
+      setConfig(loadedConfig)
+      return loadedConfig
     }
-    return false
+    return null
   }
 
-  const loadGroups = async (wxCliPath?: string) => {
-    const pathToUse = wxCliPath || config.advanced.wx_cli_path
-    const result = await window.electron?.invoke('wechat-agent:getGroups', pathToUse)
+  const loadGroups = async (wxCliPath: string): Promise<void> => {
+    const result = await window.electron?.invoke('wechat-agent:getGroups', wxCliPath)
     if (result?.ok) {
       setAvailableGroups(result.groups || [])
     }
@@ -58,13 +59,9 @@ export function WechatAgentSettings(): React.JSX.Element {
 
   useEffect(() => {
     // 先加载配置，再用配置中的 wx_cli_path 加载群组
-    loadConfig().then((loaded) => {
-      if (loaded) {
-        // 用刚加载的配置中的 wx_cli_path
-        setConfig(prev => {
-          loadGroups(prev.advanced.wx_cli_path)
-          return prev
-        })
+    loadConfig().then((loadedConfig) => {
+      if (loadedConfig) {
+        void loadGroups(loadedConfig.advanced.wx_cli_path)
       }
     })
 
