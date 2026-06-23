@@ -6,7 +6,7 @@ interface WechatAgentConfig {
   version: number
   identity: { wxid: string; names: string[] }
   groups: { monitor: Array<{ room_id: string; name: string }> }
-  ai: { api_url: string; api_key: string; api_key_format: string; model: string }
+  ai?: { api_url?: string; api_key?: string; api_key_format?: string; model?: string }  // 已废弃，保留兼容性
   advanced: { wx_cli_path: string }
   _decryptFailed?: boolean
 }
@@ -21,7 +21,6 @@ export function WechatAgentSettings(): React.JSX.Element {
     version: 1,
     identity: { wxid: '', names: [] },
     groups: { monitor: [] },
-    ai: { api_url: '', api_key: '', api_key_format: 'dpapi', model: 'gpt-4o-mini' },
     advanced: { wx_cli_path: 'wx' }
   })
   const [availableGroups, setAvailableGroups] = useState<GroupOption[]>([])
@@ -33,17 +32,7 @@ export function WechatAgentSettings(): React.JSX.Element {
     const loaded = await window.electron?.invoke('wechat-agent:loadConfig')
     if (loaded) {
       const loadedConfig = loaded as WechatAgentConfig
-      // 检测解密失败标志
-      if (loadedConfig._decryptFailed) {
-        setCurrentAlert({
-          severity: 'warning',
-          code: 'api_key_decrypt_failed',
-          message: 'API Key 解密失败，请重新输入',
-          timestamp: Date.now()
-        })
-        // 清空无法解密的 key，让用户重新输入
-        loadedConfig.ai.api_key = ''
-      }
+      // AI 配置已统一走 SightFlow Provider，不再需要处理解密失败
       setConfig(loadedConfig)
       return loadedConfig
     }
@@ -82,14 +71,7 @@ export function WechatAgentSettings(): React.JSX.Element {
       alert('请至少选择一个监控群组')
       return
     }
-    if (!config.ai.api_url.trim()) {
-      alert('请填写 AI API URL')
-      return
-    }
-    if (!config.ai.api_key.trim()) {
-      alert('请填写 AI API Key')
-      return
-    }
+    // AI 配置已统一走 SightFlow Provider，不再需要校验
 
     setSaving(true)
     const result = await window.electron?.invoke('wechat-agent:saveConfig', config)
@@ -202,37 +184,13 @@ export function WechatAgentSettings(): React.JSX.Element {
         </div>
       </div>
 
-      {/* AI 服务 */}
+      {/* AI 服务（已统一，使用 SightFlow 基础配置中的 Provider） */}
       <div className="card">
         <div className="card-title">AI 服务</div>
-        <div className="form-group">
-          <label className="form-label">API URL</label>
-          <input
-            className="form-input"
-            value={config.ai.api_url}
-            onChange={(e) => setConfig(prev => ({ ...prev, ai: { ...prev.ai, api_url: e.target.value } }))}
-            placeholder="https://api.openai.com/v1"
-          />
-        </div>
-        <div className="form-group">
-          <label className="form-label">API Key</label>
-          <input
-            className="form-input"
-            type="password"
-            value={config.ai.api_key}
-            onChange={(e) => setConfig(prev => ({ ...prev, ai: { ...prev.ai, api_key: e.target.value } }))}
-            placeholder="sk-..."
-          />
-        </div>
-        <div className="form-group">
-          <label className="form-label">Model</label>
-          <input
-            className="form-input"
-            value={config.ai.model}
-            onChange={(e) => setConfig(prev => ({ ...prev, ai: { ...prev.ai, model: e.target.value } }))}
-            placeholder="gpt-4o-mini"
-          />
-        </div>
+        <p className="form-hint" style={{ margin: 0 }}>
+          AI 回复功能已统一使用 SightFlow 基础配置中的 Provider。<br/>
+          如需修改 AI 模型或 API Key，请前往「基础配置」页面设置。
+        </p>
       </div>
 
       {/* 高级设置 */}

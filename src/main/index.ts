@@ -37,6 +37,7 @@ import {
   SkillPauseResult,
   SkillStartResult,
   SendMessageResult,
+  GenerateReplyResponse,
   startSkillServer,
   stopSkillServer
 } from './skill-server'
@@ -941,6 +942,57 @@ const skillEngineController: SkillEngineControllerWithSend = {
     } catch (error: any) {
       console.error('[sendMessage] 执行异常:', error)
       return { ok: false, error: error?.message || 'unknown_error' }
+    }
+  },
+
+  // 新增 generateReply 方法 — 使用配置的 Provider 生成回复
+  generateReply: async (context: string, _target?: string): Promise<GenerateReplyResponse> => {
+    const startTime = Date.now()
+    try {
+      console.log('[generateReply] 开始生成回复:', context.substring(0, 50))
+
+      // 获取当前配置
+      const settings = normalizeSettings(settingsStore.store)
+      const apiKey = settings.vision?.apiKey || ''
+
+      if (!apiKey) {
+        console.error('[generateReply] 未配置 API Key')
+        return { ok: false, error: 'no_api_key' }
+      }
+
+      // 构建 Provider 配置
+      const providerConfig = settings.chatProvider.config || {}
+      const model = providerConfig.model || 'doubao-seed-2.0-lite'
+      const baseURL = providerConfig.baseURL || 'https://ark.cn-beijing.volces.com/api/plan/v3'
+
+      // 创建 AIClient
+      const aiClient = new AIClient({
+        apiKey,
+        model,
+        baseURL,
+        systemPrompt: `你是一个微信自动回复助手。请根据提供的消息上下文生成合适的回复。
+
+规则：
+1. 只输出回复文字，不要解释、不要添加多余内容
+2. 回复要自然、口语化，像真人对话
+3. 如果无法判断是否需要回复，输出 [SKIP]`
+      })
+
+      // 调用纯文本 API
+      const reply = await aiClient.callText(context)
+
+      if (!reply || reply.trim() === '[SKIP]') {
+        console.log('[generateReply] AI 决定不回复')
+        return { ok: false, error: 'skip' }
+      }
+
+      const elapsed = Date.now() - startTime
+      console.log(`[generateReply] 生成完成 (${elapsed}ms):`, reply.substring(0, 50))
+
+      return { ok: true, reply: reply.trim() }
+    } catch (error: any) {
+      console.error('[generateReply] 生成失败:', error)
+      return { ok: false, error: error?.message || 'generate_failed' }
     }
   }
 }

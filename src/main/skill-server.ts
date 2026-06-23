@@ -7,6 +7,7 @@
  * - GET  /skill/status — 查询当前运行状态
  * - GET/POST /skill/autopilot — 查询/设置自动驾驶状态（Python 粘合层）
  * - POST /skill/send-message — 发送消息给联系人
+ * - POST /skill/generate-reply — 使用配置的 Provider 生成回复（统一 AI 调用）
  * - POST /skill/log — 接收粘合层日志并广播到 UI
  * - POST /skill/alert — 接收粘合层告警并广播到 UI（去重 5 分钟）
  *
@@ -57,6 +58,18 @@ export interface SendMessageResult {
   elapsed_ms?: number
 }
 
+export interface GenerateReplyRequest {
+  context: string  // 消息上下文，如 "来自 付海涛 的私聊消息：下午好"
+  target?: string  // 联系人/群名（可选，用于个性化）
+}
+
+export interface GenerateReplyResponse {
+  ok: boolean
+  reply?: string
+  error?: string
+  elapsed_ms?: number
+}
+
 export interface AutopilotStatus {
   enabled: boolean
 }
@@ -82,6 +95,8 @@ const ALERT_DEDUP_MS = 5 * 60 * 1000  // 5 分钟
 export interface SkillEngineControllerWithSend extends SkillEngineController {
   /** 发送消息给指定联系人 */
   sendMessage(contact: string, message: string): Promise<SendMessageResult>
+  /** 使用配置的 Provider 生成回复 */
+  generateReply(context: string, target?: string): Promise<GenerateReplyResponse>
 }
 
 export interface SkillEngineController {
@@ -368,6 +383,57 @@ async function handleSendMessage(res: http.ServerResponse, body: string): Promis
   }
 }
 
+async function handleGenerateReply(res: http.ServerResponse, body: string): Promise<void> {
+  if (!controller) {
+    jsonResponse(res, 503, { ok: false, error: 'controller_unavailable' })
+    return
+  }
+
+  // 解析请求体
+  let request: GenerateReplyRequest
+  try {
+    request = JSON.parse(body) as GenerateReplyRequest
+  } catch {
+    jsonResponse(res, 400, { ok: false, error: 'invalid_json' })
+    return
+  }
+
+  if (!request.context) {
+    jsonResponse(res, 400, { ok: false, error: 'missing_context' })
+    return
+  }
+
+  const startTime = Date.now()
+
+  try {
+    const result = await (controller as SkillEngineControllerWithSend).generateReply(
+      request.context,
+      request.target
+    )
+
+    if (result.ok) {
+      jsonResponse(res, 200, {
+        ok: true,
+        reply: result.reply,
+        elapsed_ms: Date.now() - startTime
+      })
+    } else {
+      jsonResponse(res, 500, {
+        ok: false,
+        error: result.error || 'generate_failed',
+        elapsed_ms: Date.now() - startTime
+      })
+    }
+  } catch (error: any) {
+    console.error('[Skill Server] generate-reply error:', error)
+    jsonResponse(res, 500, {
+      ok: false,
+      error: 'generate_failed',
+      message: error?.message || String(error)
+    })
+  }
+}
+
 async function requestHandler(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
   const { method, url } = req
 
@@ -398,6 +464,9 @@ async function requestHandler(req: http.IncomingMessage, res: http.ServerRespons
     } else if (url === '/skill/send-message' && method === 'POST') {
       const body = await readBody(req)
       await handleSendMessage(res, body)
+    } else if (url === '/skill/generate-reply' && method === 'POST') {
+      const body = await readBody(req)
+      await handleGenerateReply(res, body)
     } else if (url === '/skill/log' && method === 'POST') {
       const body = await readBody(req)
       await handleLog(res, body)
