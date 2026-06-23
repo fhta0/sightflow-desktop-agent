@@ -413,12 +413,13 @@ function SettingsWindow(): React.JSX.Element {
         >
           基础配置
         </button>
-        <button
+        {/* 智能体 tab 已隐藏 - 微信 Agent 使用统一 Provider 系统，不需要单独配置 */}
+        {/* <button
           className={`settings-nav-item ${section === 'agent' ? 'active' : ''}`}
           onClick={() => setSection('agent')}
         >
           智能体
-        </button>
+        </button> */}
         <button
           className={`settings-nav-item ${section === 'wechat-agent' ? 'active' : ''}`}
           onClick={() => setSection('wechat-agent')}
