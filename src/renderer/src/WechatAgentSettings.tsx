@@ -14,6 +14,13 @@ interface GroupOption {
   name: string
 }
 
+interface AlertData {
+  severity: 'critical' | 'warning' | 'info'
+  code: string
+  message: string
+  timestamp: number
+}
+
 export function WechatAgentSettings(): React.JSX.Element {
   const [config, setConfig] = useState<WechatAgentConfig>({
     version: 1,
@@ -25,10 +32,17 @@ export function WechatAgentSettings(): React.JSX.Element {
   const [availableGroups, setAvailableGroups] = useState<GroupOption[]>([])
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [currentAlert, setCurrentAlert] = useState<AlertData | null>(null)
 
   useEffect(() => {
     loadConfig()
     loadGroups()
+
+    // 监听告警事件（设置窗口也需要，因为和主窗口是独立的 BrowserWindow）
+    const unsubAlert = window.electron?.on('wechat-agent:alert-pushed', (alert: AlertData) => {
+      setCurrentAlert(alert)
+    })
+    return () => { unsubAlert?.() }
   }, [])
 
   const loadConfig = async () => {
@@ -109,6 +123,14 @@ export function WechatAgentSettings(): React.JSX.Element {
 
   return (
     <div className="settings-page slide-up">
+      {/* Alert Banner */}
+      {currentAlert && (
+        <div className={`alert-banner ${currentAlert.severity}`}>
+          <span>{currentAlert.message}</span>
+          <button className="close-btn" onClick={() => setCurrentAlert(null)}>×</button>
+        </div>
+      )}
+
       <div className="settings-page-header">
         <div>
           <h1>微信 Agent</h1>

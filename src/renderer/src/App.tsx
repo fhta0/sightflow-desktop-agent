@@ -11,6 +11,13 @@ interface LogEntry {
   content: string
 }
 
+interface AlertData {
+  severity: 'critical' | 'warning' | 'info'
+  code: string
+  message: string
+  timestamp: number
+}
+
 type SettingsSection = 'base' | 'agent' | 'wechat-agent'
 type AppType = 'wechat' | 'wework' | 'dingtalk' | 'lark' | 'slack' | 'telegram' | 'generic'
 
@@ -176,6 +183,7 @@ function ControlPanel() {
   const [logs, setLogs] = useState<LogEntry[]>([])
   const [autopilotEnabled, setAutopilotEnabled] = useState(true)
   const [serverPort, setServerPort] = useState(12680)
+  const [currentAlert, setCurrentAlert] = useState<AlertData | null>(null)
   const logRef = useRef<HTMLDivElement>(null)
   const listenerAttached = useRef(false)
 
@@ -184,7 +192,7 @@ function ControlPanel() {
     if (listenerAttached.current) return
     listenerAttached.current = true
 
-    const cleanup = window.electron?.on('glue-layer:log', (data: string) => {
+    const cleanupLog = window.electron?.on('glue-layer:log', (data: string) => {
       try {
         const parsed = typeof data === 'string' ? JSON.parse(data) : data
         const time = new Date().toLocaleTimeString('en-US', { hour12: false })
@@ -193,7 +201,25 @@ function ControlPanel() {
         console.error('Failed to parse log:', e)
       }
     })
-    return cleanup
+
+    // 监听告警事件
+    const cleanupAlert = window.electron?.on('wechat-agent:alert-pushed', (alert: AlertData) => {
+      setCurrentAlert(alert)
+      // 系统通知
+      if ('Notification' in window && Notification.permission === 'granted') {
+        new Notification('微信 Agent 告警', { body: alert.message })
+      }
+    })
+
+    // 请求通知权限
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission()
+    }
+
+    return () => {
+      cleanupLog?.()
+      cleanupAlert?.()
+    }
   }, [])
 
   // 监听自动驾驶状态变化
@@ -257,6 +283,14 @@ function ControlPanel() {
 
   return (
     <div className="fade-in">
+      {/* Alert Banner */}
+      {currentAlert && (
+        <div className={`alert-banner ${currentAlert.severity}`}>
+          <span>{currentAlert.message}</span>
+          <button className="close-btn" onClick={() => setCurrentAlert(null)}>×</button>
+        </div>
+      )}
+
       {/* 自动驾驶开关 */}
       <div className="card autopilot-card" style={{ marginBottom: 12 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
