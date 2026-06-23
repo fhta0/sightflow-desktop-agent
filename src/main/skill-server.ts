@@ -8,6 +8,7 @@
  * - GET/POST /skill/autopilot — 查询/设置自动驾驶状态（Python 粘合层）
  * - POST /skill/send-message — 发送消息给联系人
  * - POST /skill/log — 接收粘合层日志并广播到 UI
+ * - POST /skill/alert — 接收粘合层告警并广播到 UI（去重 5 分钟）
  *
  * 所有调用都会路由到 SkillEngineController 提供的回调里执行。
  */
@@ -66,6 +67,17 @@ export interface GlueLayerLog {
   content: string
   timestamp?: number
 }
+
+export interface AlertData {
+  severity: 'critical' | 'warning' | 'info'
+  code: string
+  message: string
+  timestamp: number
+}
+
+// Alert 去重 Map
+const alertDedupMap = new Map<string, number>()  // code → lastShownTimestamp
+const ALERT_DEDUP_MS = 5 * 60 * 1000  // 5 分钟
 
 export interface SkillEngineControllerWithSend extends SkillEngineController {
   /** 发送消息给指定联系人 */
@@ -283,6 +295,29 @@ function broadcastToAllWindows(channel: string, data: unknown): void {
   }
 }
 
+async function handleAlert(res: http.ServerResponse, body: string): Promise<void> {
+  let alert: AlertData
+  try {
+    alert = JSON.parse(body) as AlertData
+  } catch {
+    jsonResponse(res, 400, { ok: false, error: 'invalid_json' })
+    return
+  }
+
+  // 去重检查
+  const lastShown = alertDedupMap.get(alert.code)
+  if (lastShown && Date.now() - lastShown < ALERT_DEDUP_MS) {
+    jsonResponse(res, 200, { ok: true, deduplicated: true })
+    return
+  }
+  alertDedupMap.set(alert.code, Date.now())
+
+  // 推送到所有窗口
+  broadcastToAllWindows('wechat-agent:alert-pushed', alert)
+
+  jsonResponse(res, 200, { ok: true })
+}
+
 async function handleSendMessage(res: http.ServerResponse, body: string): Promise<void> {
   if (!controller) {
     jsonResponse(res, 503, { ok: false, error: 'controller_unavailable' })
@@ -366,6 +401,9 @@ async function requestHandler(req: http.IncomingMessage, res: http.ServerRespons
     } else if (url === '/skill/log' && method === 'POST') {
       const body = await readBody(req)
       await handleLog(res, body)
+    } else if (url === '/skill/alert' && method === 'POST') {
+      const body = await readBody(req)
+      await handleAlert(res, body)
     } else {
       jsonResponse(res, 404, { ok: false, error: 'not_found' })
     }

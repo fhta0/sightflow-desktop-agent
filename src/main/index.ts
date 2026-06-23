@@ -1,5 +1,8 @@
 import { app, shell, BrowserWindow, ipcMain, desktopCapturer } from 'electron'
 import { join } from 'path'
+import * as fs from 'fs'
+import { execFile } from 'child_process'
+import { promisify } from 'util'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { checkAndRequestPermissions } from './permission'
@@ -37,6 +40,8 @@ import {
   startSkillServer,
   stopSkillServer
 } from './skill-server'
+import { loadConfig, saveConfig, getConfigDir, type WechatAgentConfig } from './wechat-agent-config'
+const execFileAsync = promisify(execFile)
 const StoreClass = typeof Store === 'function' ? Store : ((Store as any).default as typeof Store)
 
 const FIXED_ARK_MODEL = 'doubao-seed-2.0-lite'
@@ -605,6 +610,63 @@ app.whenReady().then(async () => {
     return await runVlmParallelTest(apiKey, 'wechat')
   })
 
+  // === 微信 Agent IPC handlers ===
+
+  // 微信 Agent: 加载配置
+  ipcMain.handle('wechat-agent:loadConfig', async () => {
+    return loadConfig()
+  })
+
+  // 微信 Agent: 保存配置
+  ipcMain.handle('wechat-agent:saveConfig', async (_event, config: WechatAgentConfig) => {
+    return await saveConfig(config)
+  })
+
+  // 微信 Agent: 获取群组列表（从 wx sessions）
+  ipcMain.handle('wechat-agent:getGroups', async (_event, wxCliPath?: string) => {
+    const wxPath = wxCliPath || 'wx'
+    try {
+      const { stdout } = await execFileAsync(wxPath, ['sessions', '-n', '1000', '--json'], {
+        timeout: 15000,
+        encoding: 'utf-8'
+      })
+      const data = JSON.parse(stdout)
+      const sessions = data.sessions || []
+      // 过滤群组
+      const groups = sessions
+        .filter((s: any) => s.chat_type === 'group')
+        .map((s: any) => ({ room_id: s.username, name: s.chat }))
+      return { ok: true, groups }
+    } catch (e: any) {
+      console.error('[wechat-agent:getGroups] error:', e)
+      return { ok: false, error: e.message, groups: [] }
+    }
+  })
+
+  // 微信 Agent: 自动检测 wxid
+  ipcMain.handle('wechat-agent:detectWxid', async (_event, wxCliPath?: string) => {
+    const wxPath = wxCliPath || 'wx'
+    try {
+      const { stdout } = await execFileAsync(wxPath, ['whoami'], {
+        timeout: 10000,
+        encoding: 'utf-8'
+      })
+      const data = JSON.parse(stdout)
+      return { ok: true, wxid: data.wxid || '' }
+    } catch (e: any) {
+      // wx whoami 可能不存在
+      return { ok: false, error: e.message, wxid: '' }
+    }
+  })
+
+  // 微信 Agent: 打开配置文件夹
+  ipcMain.handle('wechat-agent:openConfigDir', async () => {
+    const dir = getConfigDir()
+    fs.mkdirSync(dir, { recursive: true })
+    shell.openPath(dir)
+    return { ok: true }
+  })
+
   // ── Skill HTTP Server（OpenClaw 远程启动 / 暂停接入点） ──
   startSkillServer(skillEngineController)
 
@@ -864,8 +926,11 @@ const skillEngineController: SkillEngineControllerWithSend = {
 
       console.log('[sendMessage] 窗口 bounds:', windowInfo.bounds)
 
-      // 调用组合发送函数（指定微信类型）
-      const success = await sendMessageToContact(contact, message, windowInfo.bounds, 'wechat')
+      // 获取 VLM API key（用于截图定位搜索结果中的联系人）
+      const vlmApiKey = normalizeSettings(settingsStore.store).vision?.apiKey || ''
+
+      // 调用组合发送函数（指定微信类型 + VLM API key）
+      const success = await sendMessageToContact(contact, message, windowInfo.bounds, 'wechat', vlmApiKey)
       console.log('[sendMessage] 发送结果:', success ? '成功' : '失败')
 
       if (success) {
