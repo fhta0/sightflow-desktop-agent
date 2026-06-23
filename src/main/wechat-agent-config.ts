@@ -74,15 +74,23 @@ export async function saveConfig(config: WechatAgentConfig): Promise<{ ok: boole
     // 确保目录存在
     fs.mkdirSync(CONFIG_DIR, { recursive: true })
 
-    // 加密 API Key
+    // 准备写入的配置
     const toWrite = { ...config }
-    if (toWrite.ai?.api_key && safeStorage.isEncryptionAvailable()) {
-      const encrypted = safeStorage.encryptString(toWrite.ai.api_key)
-      toWrite.ai.api_key = encrypted.toString('base64')
-      toWrite.ai.api_key_format = 'dpapi'
-    } else if (toWrite.ai) {
+
+    // TODO: DPAPI 加密暂时禁用，因为 Electron 的 safeStorage 和 Python 的 win32crypt
+    // 使用不同的加密上下文，导致 Python 无法解密
+    // 等修复后再启用加密
+    if (toWrite.ai) {
       toWrite.ai.api_key_format = 'plaintext'
     }
+
+    // if (toWrite.ai?.api_key && safeStorage.isEncryptionAvailable()) {
+    //   const encrypted = safeStorage.encryptString(toWrite.ai.api_key)
+    //   toWrite.ai.api_key = encrypted.toString('base64')
+    //   toWrite.ai.api_key_format = 'dpapi'
+    // } else if (toWrite.ai) {
+    //   toWrite.ai.api_key_format = 'plaintext'
+    // }
 
     toWrite.version = SUPPORTED_VERSION
 

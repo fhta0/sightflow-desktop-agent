@@ -60,9 +60,9 @@ export function WechatAgentSettings(): React.JSX.Element {
   useEffect(() => {
     // 先加载配置，再用配置中的 wx_cli_path 加载群组
     loadConfig().then((loadedConfig) => {
-      if (loadedConfig) {
-        void loadGroups(loadedConfig.advanced.wx_cli_path)
-      }
+      // 即使没有配置文件，也使用默认路径加载群组
+      const wxCliPath = loadedConfig?.advanced.wx_cli_path || 'wx'
+      void loadGroups(wxCliPath)
     })
 
     // 监听告警事件（设置窗口也需要，因为和主窗口是独立的 BrowserWindow）
@@ -78,8 +78,8 @@ export function WechatAgentSettings(): React.JSX.Element {
       alert('请填写微信 ID')
       return
     }
-    if (config.identity.names.length === 0) {
-      alert('请至少添加一个群昵称')
+    if (config.groups.monitor.length === 0) {
+      alert('请至少选择一个监控群组')
       return
     }
     if (!config.ai.api_url.trim()) {
