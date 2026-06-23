@@ -1,5 +1,6 @@
 // sightflow-desktop-agent/src/renderer/src/WechatAgentSettings.tsx
 import { useState, useEffect } from 'react'
+import { AlertData } from './types'
 
 interface WechatAgentConfig {
   version: number
@@ -12,13 +13,6 @@ interface WechatAgentConfig {
 interface GroupOption {
   room_id: string
   name: string
-}
-
-interface AlertData {
-  severity: 'critical' | 'warning' | 'info'
-  code: string
-  message: string
-  timestamp: number
 }
 
 export function WechatAgentSettings(): React.JSX.Element {
@@ -34,9 +28,45 @@ export function WechatAgentSettings(): React.JSX.Element {
   const [saved, setSaved] = useState(false)
   const [currentAlert, setCurrentAlert] = useState<AlertData | null>(null)
 
+  const loadConfig = async (): Promise<boolean> => {
+    const loaded = await window.electron?.invoke('wechat-agent:loadConfig')
+    if (loaded) {
+      setConfig(loaded)
+      // 检测解密失败标志
+      if ((loaded as any)._decryptFailed) {
+        setCurrentAlert({
+          severity: 'warning',
+          code: 'api_key_decrypt_failed',
+          message: 'API Key 解密失败，请重新输入',
+          timestamp: Date.now()
+        })
+        // 清空无法解密的 key，让用户重新输入
+        setConfig(prev => ({ ...prev, ai: { ...prev.ai, api_key: '' } }))
+      }
+      return true
+    }
+    return false
+  }
+
+  const loadGroups = async (wxCliPath?: string) => {
+    const pathToUse = wxCliPath || config.advanced.wx_cli_path
+    const result = await window.electron?.invoke('wechat-agent:getGroups', pathToUse)
+    if (result?.ok) {
+      setAvailableGroups(result.groups || [])
+    }
+  }
+
   useEffect(() => {
-    loadConfig()
-    loadGroups()
+    // 先加载配置，再用配置中的 wx_cli_path 加载群组
+    loadConfig().then((loaded) => {
+      if (loaded) {
+        // 用刚加载的配置中的 wx_cli_path
+        setConfig(prev => {
+          loadGroups(prev.advanced.wx_cli_path)
+          return prev
+        })
+      }
+    })
 
     // 监听告警事件（设置窗口也需要，因为和主窗口是独立的 BrowserWindow）
     const unsubAlert = window.electron?.on('wechat-agent:alert-pushed', (alert: AlertData) => {
@@ -44,20 +74,6 @@ export function WechatAgentSettings(): React.JSX.Element {
     })
     return () => { unsubAlert?.() }
   }, [])
-
-  const loadConfig = async () => {
-    const loaded = await window.electron?.invoke('wechat-agent:loadConfig')
-    if (loaded) {
-      setConfig(loaded)
-    }
-  }
-
-  const loadGroups = async () => {
-    const result = await window.electron?.invoke('wechat-agent:getGroups', config.advanced.wx_cli_path)
-    if (result?.ok) {
-      setAvailableGroups(result.groups || [])
-    }
-  }
 
   const handleSave = async () => {
     // 客户端校验

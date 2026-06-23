@@ -55,8 +55,8 @@ export function loadConfig(): WechatAgentConfig | null {
         data.ai.api_key = safeStorage.decryptString(encrypted)
       } catch (e) {
         console.error('[WechatAgentConfig] API Key 解密失败:', e)
-        // 返回配置但 API Key 为空
-        data.ai.api_key = ''
+        // 不覆盖 api_key，保留加密值；设置标志让 UI 提示用户
+        ;(data as any)._decryptFailed = true
       }
     }
     return data
@@ -78,6 +78,8 @@ export async function saveConfig(config: WechatAgentConfig): Promise<{ ok: boole
       const encrypted = safeStorage.encryptString(toWrite.ai.api_key)
       toWrite.ai.api_key = encrypted.toString('base64')
       toWrite.ai.api_key_format = 'dpapi'
+    } else if (toWrite.ai) {
+      toWrite.ai.api_key_format = 'plaintext'
     }
 
     toWrite.version = SUPPORTED_VERSION

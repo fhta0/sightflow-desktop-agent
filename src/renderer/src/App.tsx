@@ -2,6 +2,7 @@ import { useState, useCallback, useRef, useEffect, useMemo } from 'react'
 import { t } from './i18n'
 import logoUrl from './assets/logo.png'
 import { WechatAgentSettings } from './WechatAgentSettings'
+import { AlertData } from './types'
 import './index.css'
 
 interface LogEntry {
@@ -9,13 +10,6 @@ interface LogEntry {
   type: 'receive' | 'reply' | 'skip' | 'error' | 'info' | 'thinking' | 'monitor' | 'heartbeat'
   contact?: string
   content: string
-}
-
-interface AlertData {
-  severity: 'critical' | 'warning' | 'info'
-  code: string
-  message: string
-  timestamp: number
 }
 
 type SettingsSection = 'base' | 'agent' | 'wechat-agent'
