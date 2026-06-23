@@ -1,16 +1,17 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react'
 import { t } from './i18n'
 import logoUrl from './assets/logo.png'
+import { WechatAgentSettings } from './WechatAgentSettings'
 import './index.css'
 
 interface LogEntry {
   time: string
-  type: 'receive' | 'reply' | 'skip' | 'error' | 'info' | 'thinking'
+  type: 'receive' | 'reply' | 'skip' | 'error' | 'info' | 'thinking' | 'monitor' | 'heartbeat'
   contact?: string
   content: string
 }
 
-type SettingsSection = 'base' | 'agent'
+type SettingsSection = 'base' | 'agent' | 'wechat-agent'
 type AppType = 'wechat' | 'wework' | 'dingtalk' | 'lark' | 'slack' | 'telegram' | 'generic'
 
 interface AppSettings {
@@ -160,11 +161,6 @@ function App() {
 
   return (
     <div className="app">
-      <header className="app-header">
-        <img src={logoUrl} alt="WeChat-Driverless" className="app-logo" />
-        <span className="app-title">{t('app.title')}</span>
-      </header>
-
       <div className="app-content">
         <ControlPanel />
       </div>
@@ -181,12 +177,21 @@ function ControlPanel() {
   const [autopilotEnabled, setAutopilotEnabled] = useState(true)
   const [serverPort, setServerPort] = useState(12680)
   const logRef = useRef<HTMLDivElement>(null)
+  const listenerAttached = useRef(false)
 
-  // 监听粘合层日志
+  // 监听粘合层日志（防止 HMR 导致重复注册）
   useEffect(() => {
-    const cleanup = window.electron?.on('glue-layer:log', (data: LogEntry) => {
-      const time = new Date().toLocaleTimeString('en-US', { hour12: false })
-      setLogs((prev) => [...prev.slice(-99), { ...data, time }])
+    if (listenerAttached.current) return
+    listenerAttached.current = true
+
+    const cleanup = window.electron?.on('glue-layer:log', (data: string) => {
+      try {
+        const parsed = typeof data === 'string' ? JSON.parse(data) : data
+        const time = new Date().toLocaleTimeString('en-US', { hour12: false })
+        setLogs((prev) => [...prev.slice(-99), { ...parsed, time }])
+      } catch (e) {
+        console.error('Failed to parse log:', e)
+      }
     })
     return cleanup
   }, [])
@@ -306,7 +311,9 @@ function ControlPanel() {
                    entry.type === 'reply' ? '回复' :
                    entry.type === 'skip' ? '跳过' :
                    entry.type === 'error' ? '错误' :
-                   entry.type === 'info' ? '信息' : '思考'}
+                   entry.type === 'info' ? '信息' :
+                   entry.type === 'monitor' ? '监控' :
+                   entry.type === 'heartbeat' ? '心跳' : '思考'}
                 </span>
                 {entry.contact && <span style={{ color: '#a0a0b8', marginRight: '4px' }}>{entry.contact}:</span>}
                 <span>{entry.content}</span>
@@ -321,9 +328,13 @@ function ControlPanel() {
 
 function BottomBar() {
   const [glueLayerConnected, setGlueLayerConnected] = useState(false)
+  const listenerAttached = useRef(false)
 
-  // 监听粘合层日志来判断连接状态
+  // 监听粘合层日志来判断连接状态（防止 HMR 导致重复注册）
   useEffect(() => {
+    if (listenerAttached.current) return
+    listenerAttached.current = true
+
     const cleanup = window.electron?.on('glue-layer:log', () => {
       setGlueLayerConnected(true)
     })
@@ -380,10 +391,22 @@ function SettingsWindow(): React.JSX.Element {
         >
           智能体
         </button>
+        <button
+          className={`settings-nav-item ${section === 'wechat-agent' ? 'active' : ''}`}
+          onClick={() => setSection('wechat-agent')}
+        >
+          微信 Agent
+        </button>
       </aside>
 
       <main className="settings-main">
-        {section === 'base' ? <SettingsPanel /> : <AgentPanel />}
+        {section === 'base' ? (
+          <SettingsPanel />
+        ) : section === 'agent' ? (
+          <AgentPanel />
+        ) : (
+          <WechatAgentSettings />
+        )}
       </main>
     </div>
   )
