@@ -2,6 +2,8 @@ import { clipboard } from 'electron'
 import { AppType } from './types'
 import { getWindowInfo, getInputBoxCoords, activateWechatWindow } from './window-utils'
 import { getInputAreaFromCache } from './vision-utils'
+import { captureWechatWindow } from './screenshot-utils'
+import { AIClient } from '../ai-client'
 const IS_WINDOWS = process.platform === 'win32'
 const IS_MAC = process.platform === 'darwin'
 
@@ -559,7 +561,11 @@ export async function searchContactByKeyboard(contactName: string): Promise<bool
     }
     await randomDelayIn(400, 700)  // 等待搜索结果渲染 + 人类"查看结果"停顿
 
-    console.log(`[searchContactByKeyboard] 已搜索联系人: ${contactName}`)
+    // 5. 按 Enter 打开第一个搜索结果（人类搜索后的自然行为）
+    robot.keyTap('enter')
+    await randomDelayIn(500, 900)  // 等待聊天窗口打开
+
+    console.log(`[searchContactByKeyboard] 已搜索并打开联系人: ${contactName}`)
     return true
   } catch (error: any) {
     console.error('[searchContactByKeyboard] 执行异常:', error)
@@ -568,31 +574,82 @@ export async function searchContactByKeyboard(contactName: string): Promise<bool
 }
 
 /**
- * 组合函数：搜索联系人 → 点击第一条结果 → 输入并发送消息
+ * VLM 验证聊天窗口是否已正确打开（而非搜索结果面板）
+ *
+ * 截图微信窗口，让 VLM 判断当前是否显示了与目标联系人的聊天窗口
+ * （有消息输入框、聊天记录区域），而不是搜索下拉列表。
+ */
+async function verifyChatWindowOpen(
+  contactName: string,
+  vlmApiKey: string
+): Promise<boolean> {
+  const screenshotResult = await captureWechatWindow('wechat')
+  if (!screenshotResult.success || !screenshotResult.screenshotBase64) {
+    console.error('[verifyChatWindow] 截图失败:', screenshotResult.error)
+    return false
+  }
+
+  const { screenshotBase64 } = screenshotResult
+  const client = new AIClient({ apiKey: vlmApiKey })
+  const prompt = `你是一个微信桌面端界面解析专家。
+
+## 当前界面
+这是微信执行搜索后的界面截图。
+
+## 你的任务
+判断当前界面是否已经打开了与"${contactName}"的**聊天窗口**（而非搜索下拉列表）。
+
+聊天窗口的特征：
+- 右侧主区域显示与该联系人的聊天记录/消息历史
+- 底部有消息输入框
+- 搜索下拉列表已关闭（搜索框不在活跃状态）
+
+如果当前仍是搜索下拉列表覆盖在界面上、或者右侧没有显示与"${contactName}"的聊天内容，说明聊天窗口尚未打开。
+
+## 输出格式
+- 如果聊天窗口已打开：输出 <result>open</result>
+- 如果聊天窗口未打开（仍在搜索面板）：输出 <result>search</result>
+只输出结果标签，不要其他内容。`
+
+  const response = await client.detectVision(prompt, screenshotBase64)
+  console.log('[verifyChatWindow] VLM 返回:', response?.slice(0, 200))
+
+  const isOpen = response?.includes('<result>open</result>') ?? false
+  console.log(`[verifyChatWindow] 聊天窗口状态: ${isOpen ? '已打开' : '未打开'}`)
+  return isOpen
+}
+
+/**
+ * 组合函数：搜索联系人 + Enter 打开聊天 → 验证 → 输入并发送消息
  *
  * 人类行为特征：
  * 0. 先激活微信窗口（切换窗口有自然停顿）
- * 1. 搜索前有自然停顿
- * 2. 搜索后有"查看结果"停顿
- * 3. 选择联系人前有犹豫停顿
- * 4. 打开会话后等待聊天记录加载
- * 5. 输入前有"思考回复"停顿
+ * 1. Ctrl+F 搜索联系人，按 Enter 打开第一个结果
+ * 2. VLM 验证聊天窗口已打开（如未打开，重试 Enter）
+ * 3. 点击输入框，输入消息并发送
  *
  * @param contactName 联系人名称
  * @param message 要发送的消息
  * @param bounds 窗口边界（用于计算输入框坐标）
  * @param appType 应用类型（wechat/weework），默认 'wechat'
+ * @param vlmApiKey VLM API 密钥（用于验证聊天窗口）
  * @returns 是否成功发送
  */
 export async function sendMessageToContact(
   contactName: string,
   message: string,
   bounds: { x: number; y: number; width: number; height: number },
-  appType: AppType = 'wechat'
+  appType: AppType = 'wechat',
+  vlmApiKey: string
 ): Promise<boolean> {
   const robot = getRobot()
   if (!robot) {
     console.error('[sendMessageToContact] RobotJS 缺失')
+    return false
+  }
+
+  if (!vlmApiKey) {
+    console.error('[sendMessageToContact] 缺少 VLM API Key，无法定位搜索结果中的联系人')
     return false
   }
 
@@ -609,46 +666,45 @@ export async function sendMessageToContact(
     // 阶段 1: 搜索前的自然停顿
     await randomDelayIn(200, 400)
 
-    // 阶段 2: 键盘搜索联系人
+    // 阶段 2: 键盘搜索联系人 + 按 Enter 打开聊天窗口
     const searchOk = await searchContactByKeyboard(contactName)
     if (!searchOk) {
       console.error('[sendMessageToContact] 搜索失败')
       return false
     }
 
-    // 阶段 3: 搜索结果查看停顿（人类会看一眼搜索结果）
-    await randomDelayIn(400, 800)
+    // 阶段 3: VLM 验证聊天窗口是否已正确打开
+    const verifyOk = await verifyChatWindowOpen(contactName, vlmApiKey)
+    if (!verifyOk) {
+      console.warn('[sendMessageToContact] 聊天窗口验证失败，尝试重试...')
+      // 再按一次 Enter 尝试打开
+      robot.keyTap('enter')
+      await randomDelayIn(500, 900)
+    }
 
-    // 阶段 4: 选择前的犹豫停顿（重要操作）
-    await hesitationPause(true)
-
-    // 阶段 5: 按 Enter 点击第一条搜索结果
-    robot.keyTap('enter')
-    await randomDelayIn(600, 1200)  // 等待会话窗口打开 + 聊天记录加载
-
-    // 阶段 6: 计算输入框坐标并仿人移动
+    // 阶段 4: 计算输入框坐标并仿人移动
     const [inputX, inputY] = getInputBoxCoords(bounds)
     await humanLikeMove(inputX, inputY)
     await randomDelayIn(150, 300)
 
-    // 阶段 7: 点击前的犹豫停顿
+    // 阶段 5: 点击前的犹豫停顿
     await hesitationPause(false)
 
-    // 阶段 8: 仿人点击聚焦输入框
+    // 阶段 6: 仿人点击聚焦输入框
     await humanLikeClick('left', 'careful')
     await randomDelayIn(300, 500)  // 等待输入框激活
 
-    // 阶段 9: 输入前的"思考回复"停顿
+    // 阶段 7: 输入前的"思考回复"停顿
     await randomDelayIn(500, 1000)
 
-    // 阶段 10: 安全粘贴并发送消息
+    // 阶段 8: 安全粘贴并发送消息
     const sendOk = await safePaste(message)
     if (!sendOk) {
       console.error('[sendMessageToContact] 发送失败')
       return false
     }
 
-    // 阶段 11: 发送后的自然停顿和鼠标移动
+    // 阶段 9: 发送后的自然停顿和鼠标移动
     await randomDelayIn(200, 500)
     // 鼠标轻微移开（人类发送后通常会移开视线/鼠标）
     const postSendX = inputX + (Math.random() - 0.5) * 30

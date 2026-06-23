@@ -3,7 +3,18 @@ import { contextBridge, ipcRenderer } from 'electron'
 const electronHandler = {
   invoke: (channel: string, ...args: any[]) => ipcRenderer.invoke(channel, ...args),
   on: (channel: string, callback: (...args: any[]) => void) => {
-    const handler = (_: any, ...args: any[]) => callback(...args)
+    const handler = (_: any, ...args: any[]) => {
+      // 对于 glue-layer:log 事件，解析 JSON 字符串
+      if (channel === 'glue-layer:log' && typeof args[0] === 'string') {
+        try {
+          callback(JSON.parse(args[0]))
+        } catch {
+          callback(args[0])
+        }
+      } else {
+        callback(...args)
+      }
+    }
     ipcRenderer.on(channel, handler)
     return () => {
       ipcRenderer.removeListener(channel, handler)
