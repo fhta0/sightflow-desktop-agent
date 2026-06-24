@@ -114,8 +114,16 @@ let controller: SkillEngineController | null = null
 /** 并发锁：同一时间只能有一个 start/pause 操作 */
 let skillOperationLock = false
 
-/** 自动驾驶状态：默认启用 */
-let autopilotEnabled = true
+/** Settings store accessor — injected by index.ts to avoid circular dependency */
+export interface SettingsStoreAccessor {
+  get(key: string, defaultValue?: any): any
+  set(key: string, value: any): void
+}
+
+let settingsStore: SettingsStoreAccessor | null = null
+
+/** 自动驾驶状态：从 store 初始化，默认禁用 */
+let autopilotEnabled = false
 
 /** 当前监听端口 */
 let currentPort = FIXED_PORT
@@ -287,6 +295,13 @@ async function handleAutopilotSet(res: http.ServerResponse, body: string, reques
   }
 
   autopilotEnabled = request.enabled
+
+  // 持久化到 electron-store
+  try {
+    settingsStore?.set('autopilot.enabled', request.enabled)
+  } catch (e) {
+    console.error('[Skill Server] 持久化 autopilot 失败:', e)
+  }
 
   // 广播状态变化到所有窗口
   broadcastToAllWindows('autopilot:state', { enabled: autopilotEnabled })
@@ -504,12 +519,19 @@ async function requestHandler(req: http.IncomingMessage, res: http.ServerRespons
   }
 }
 
-export function startSkillServer(engineController: SkillEngineControllerWithSend): void {
+export function startSkillServer(
+  engineController: SkillEngineControllerWithSend,
+  store?: SettingsStoreAccessor
+): void {
   if (server) {
     console.warn('[Skill Server] already started, skip')
     return
   }
   controller = engineController
+  settingsStore = store ?? null
+
+  // 从 store 初始化 autopilot 状态
+  autopilotEnabled = settingsStore?.get('autopilot.enabled', false) ?? false
 
   server = http.createServer((req, res) => {
     requestHandler(req, res).catch((error) => {

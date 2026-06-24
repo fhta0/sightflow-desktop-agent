@@ -669,7 +669,10 @@ app.whenReady().then(async () => {
   })
 
   // ── Skill HTTP Server（OpenClaw 远程启动 / 暂停接入点） ──
-  startSkillServer(skillEngineController)
+  startSkillServer(skillEngineController, {
+    get: (key: string, defaultValue?: any) => settingsStore.get(key, defaultValue),
+    set: (key: string, value: any) => settingsStore.set(key, value)
+  })
 
   createWindow()
 
@@ -953,7 +956,8 @@ const skillEngineController: SkillEngineControllerWithSend = {
 
       // 获取当前配置
       const settings = normalizeSettings(settingsStore.store)
-      const apiKey = settings.vision?.apiKey || ''
+      const providerConfig = settings.chatProvider.config || {}
+      const apiKey = providerConfig.apiKey || ''
 
       if (!apiKey) {
         console.error('[generateReply] 未配置 API Key')
@@ -961,7 +965,6 @@ const skillEngineController: SkillEngineControllerWithSend = {
       }
 
       // 构建 Provider 配置
-      const providerConfig = settings.chatProvider.config || {}
       const model = providerConfig.model || 'doubao-seed-2.0-lite'
       const baseURL = providerConfig.baseURL || 'https://ark.cn-beijing.volces.com/api/plan/v3'
 
