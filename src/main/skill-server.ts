@@ -123,10 +123,11 @@ let currentPort = FIXED_PORT
 /** Allowed origins for CORS validation */
 function isAllowedOrigin(origin: string | undefined): boolean {
   if (!origin) return true  // non-browser clients (curl, glue-layer) have no Origin
+  const lower = origin.toLowerCase()
   // Allow localhost dev servers
-  if (origin.startsWith('http://127.0.0.1:') || origin.startsWith('http://localhost:')) return true
+  if (lower.startsWith('http://127.0.0.1:') || lower.startsWith('http://localhost:')) return true
   // Allow Electron file:// and app:// protocols
-  if (origin.startsWith('file://') || origin.startsWith('app://')) return true
+  if (lower.startsWith('file://') || lower.startsWith('app://')) return true
   return false
 }
 
@@ -138,10 +139,13 @@ function jsonResponse(
 ): void {
   const origin = requestOrigin ?? ''
   const allowed = isAllowedOrigin(origin || undefined)
-  res.writeHead(statusCode, {
-    'Content-Type': 'application/json',
-    'Access-Control-Allow-Origin': allowed ? (origin || '*') : 'null'
-  })
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  // Omit ACAO header for disallowed origins — setting it to 'null' would match
+  // sandboxed iframe Origin: null, partially defeating the CORS check.
+  if (allowed) {
+    headers['Access-Control-Allow-Origin'] = origin || '*'
+  }
+  res.writeHead(statusCode, headers)
   res.end(JSON.stringify(body))
 }
 
@@ -453,11 +457,14 @@ async function requestHandler(req: http.IncomingMessage, res: http.ServerRespons
 
   if (method === 'OPTIONS') {
     const allowed = isAllowedOrigin(requestOrigin)
-    res.writeHead(204, {
-      'Access-Control-Allow-Origin': allowed ? (requestOrigin || '*') : 'null',
+    const headers: Record<string, string> = {
       'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type'
-    })
+    }
+    if (allowed) {
+      headers['Access-Control-Allow-Origin'] = requestOrigin || '*'
+    }
+    res.writeHead(204, headers)
     res.end()
     return
   }
