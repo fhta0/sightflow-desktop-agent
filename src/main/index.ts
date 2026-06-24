@@ -39,7 +39,8 @@ import {
   SendMessageResult,
   GenerateReplyResponse,
   startSkillServer,
-  stopSkillServer
+  stopSkillServer,
+  setEngineBusy
 } from './skill-server'
 import { loadConfig, saveConfig, getConfigDir, type WechatAgentConfig } from './wechat-agent-config'
 const execFileAsync = promisify(execFile)
@@ -785,8 +786,10 @@ async function startEngineCore(rawConfig?: any): Promise<SkillStartResult> {
 
     runtime.startSession().catch((err: any) => {
       console.error('[Main] Runtime session error:', err)
+      setEngineBusy(false)
     })
 
+    setEngineBusy(true)
     notifyEngineStateChanged('running')
 
     return { ok: true }
@@ -805,6 +808,7 @@ async function stopEngineCore(stopReason: string): Promise<SkillPauseResult> {
   }
   try {
     await runtime.stopSession(stopReason)
+    setEngineBusy(false)
     notifyEngineStateChanged('idle')
     return { ok: true }
   } catch (error: any) {

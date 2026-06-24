@@ -47,7 +47,7 @@ export interface SendMessageRequest {
 
 export interface SendMessageResponse {
   ok: boolean
-  error?: 'contact_not_found' | 'send_failed' | 'operation_in_progress' | 'window_not_found' | 'missing_contact_or_message' | 'invalid_json'
+  error?: 'contact_not_found' | 'send_failed' | 'operation_in_progress' | 'window_not_found' | 'missing_contact_or_message' | 'invalid_json' | 'engine_busy'
   message?: string
   elapsed_ms?: number
 }
@@ -113,6 +113,14 @@ let controller: SkillEngineController | null = null
 
 /** 并发锁：同一时间只能有一个 start/pause 操作 */
 let skillOperationLock = false
+
+/**
+ * RPA 引擎互斥标志：当引擎（GenericChannelSession）正在操作微信窗口时置 true。
+ * sendMessage 同样通过键盘/鼠标 RPA 操作微信窗口，两者不能并发执行，
+ * 否则会产生键鼠冲突（同时输入、点击错位等）。
+ * 由 index.ts 中的引擎控制器在 start/stop 时设置。
+ */
+let _engineBusy = false
 
 /** Settings store accessor — injected by index.ts to avoid circular dependency */
 export interface SettingsStoreAccessor {
@@ -371,8 +379,12 @@ async function handleSendMessage(res: http.ServerResponse, body: string, request
     return
   }
 
-  // sendMessage 不需要并发锁，因为它是独立的发送操作
-  // skillOperationLock 只用于 start/pause 操作
+  // sendMessage 与引擎的 RPA 操作共享同一微信窗口（键鼠输入），不能并发。
+  // 引擎正在运行时拒绝发送，避免产生输入冲突 / 点击错位。
+  if (_engineBusy) {
+    jsonResponse(res, 409, { ok: false, error: 'engine_busy' }, requestOrigin)
+    return
+  }
 
   // 解析请求体
   let request: SendMessageRequest
@@ -581,4 +593,19 @@ export function stopSkillServer(): void {
   }
   controller = null
   skillOperationLock = false
+  _engineBusy = false
+}
+
+/**
+ * 标记 RPA 引擎是否正在操作微信窗口。
+ * 由 index.ts 中的引擎控制器在 startEngineCore / stopEngineCore 时调用，
+ * 让 sendMessage 能感知到引擎是否占用键鼠资源。
+ */
+export function setEngineBusy(busy: boolean): void {
+  _engineBusy = busy
+}
+
+/** 查询当前 RPA 引擎是否正在操作微信窗口 */
+export function isEngineBusy(): boolean {
+  return _engineBusy
 }
