@@ -31,3 +31,4 @@ screenshot_*.png
 
 # TypeScript incremental build info
 *.tsbuildinfo
+resources/wechat/*.exe

@@ -11,6 +11,16 @@ files:
   - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
 asarUnpack:
   - resources/**
+extraResources:
+  - from: "resources/wx-cli/"
+    to: "wx-cli/"
+    filter: ["**/*.exe"]
+  - from: "resources/glue-layer/"
+    to: "glue-layer/"
+    filter: ["**/*.exe"]
+  - from: "resources/wechat/"
+    to: "wechat/"
+    filter: ["**/*.exe"]
 win:
   executableName: SightFlow
 nsis:
