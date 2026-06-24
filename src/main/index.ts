@@ -43,6 +43,8 @@ import {
   setEngineBusy
 } from './skill-server'
 import { loadConfig, saveConfig, getConfigDir, type WechatAgentConfig } from './wechat-agent-config'
+import { ProcessManager, getGlueLayerPath, getWxCliPath } from './process-manager'
+import { detectWeChat, installWeChat } from './wechat-installer'
 const execFileAsync = promisify(execFile)
 const StoreClass = typeof Store === 'function' ? Store : ((Store as any).default as typeof Store)
 
@@ -137,6 +139,42 @@ const settingsStore = new StoreClass({
     capture: {}
   }
 })
+
+let glueLayerManager: ProcessManager | null = null
+
+function startGlueLayer(): void {
+  const wxCliPath = getWxCliPath()
+  const glueLayerPath = getGlueLayerPath()
+
+  if (!fs.existsSync(glueLayerPath)) {
+    console.error('[Main] glue-layer.exe not found at:', glueLayerPath)
+    return
+  }
+
+  glueLayerManager = new ProcessManager({
+    executablePath: glueLayerPath,
+    wxCliPath,
+    sightflowPort: 12680,
+    callbacks: {
+      onStatusChange: (status) => {
+        BrowserWindow.getAllWindows().forEach(win => {
+          if (!win.isDestroyed()) {
+            win.webContents.send('wechat-agent:glue-layer-status', status)
+          }
+        })
+      },
+      onLog: (line) => {
+        BrowserWindow.getAllWindows().forEach(win => {
+          if (!win.isDestroyed()) {
+            win.webContents.send('wechat-agent:glue-layer-log', line)
+          }
+        })
+      }
+    }
+  })
+
+  glueLayerManager.start()
+}
 
 let runtime: RuntimeHost<ReturnType<typeof createInitialGenericChannelState>> | null = null
 let runtimeDevice: DesktopDevice | null = null
@@ -669,11 +707,46 @@ app.whenReady().then(async () => {
     return { ok: true }
   })
 
+  // 微信 Agent: 获取 glue-layer 状态
+  ipcMain.handle('wechat-agent:getGlueLayerStatus', () => {
+    return glueLayerManager?.status ?? 'stopped'
+  })
+
+  // 微信 Agent: 重启 glue-layer
+  ipcMain.handle('wechat-agent:restartGlueLayer', () => {
+    glueLayerManager?.restart()
+    return { ok: true }
+  })
+
+  // 微信 Agent: 检测微信安装状态
+  ipcMain.handle('wechat-agent:checkWeChat', () => {
+    return detectWeChat()
+  })
+
+  // 微信 Agent: 安装微信
+  ipcMain.handle('wechat-agent:installWeChat', async () => {
+    const installerPath = join(process.resourcesPath, 'wechat', 'WeChatWin_4.1.9.exe')
+    if (!fs.existsSync(installerPath)) {
+      // Dev fallback
+      const devPath = join(app.getAppPath(), 'resources', 'wechat', 'WeChatWin_4.1.9.exe')
+      if (!fs.existsSync(devPath)) {
+        return { ok: false, error: 'installer_not_found' }
+      }
+      const success = await installWeChat(devPath)
+      return { ok: success }
+    }
+    const success = await installWeChat(installerPath)
+    return { ok: success }
+  })
+
   // ── Skill HTTP Server（OpenClaw 远程启动 / 暂停接入点） ──
   startSkillServer(skillEngineController, {
     get: (key: string, defaultValue?: any) => settingsStore.get(key, defaultValue),
     set: (key: string, value: any) => settingsStore.set(key, value)
   })
+
+  // Start glue-layer after skill server initialization
+  setTimeout(startGlueLayer, 2000)
 
   createWindow()
 
@@ -695,6 +768,7 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', () => {
   stopSkillServer()
+  glueLayerManager?.stop()
 })
 
 // ── 引擎启动 / 暂停核心逻辑（IPC 与 Skill HTTP Server 共用） ──
