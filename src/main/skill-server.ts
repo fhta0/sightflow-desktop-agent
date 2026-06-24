@@ -120,14 +120,27 @@ let autopilotEnabled = true
 /** 当前监听端口 */
 let currentPort = FIXED_PORT
 
+/** Allowed origins for CORS validation */
+function isAllowedOrigin(origin: string | undefined): boolean {
+  if (!origin) return true  // non-browser clients (curl, glue-layer) have no Origin
+  // Allow localhost dev servers
+  if (origin.startsWith('http://127.0.0.1:') || origin.startsWith('http://localhost:')) return true
+  // Allow Electron file:// and app:// protocols
+  if (origin.startsWith('file://') || origin.startsWith('app://')) return true
+  return false
+}
+
 function jsonResponse(
   res: http.ServerResponse,
   statusCode: number,
-  body: Record<string, unknown>
+  body: Record<string, unknown>,
+  requestOrigin?: string
 ): void {
+  const origin = requestOrigin ?? ''
+  const allowed = isAllowedOrigin(origin || undefined)
   res.writeHead(statusCode, {
     'Content-Type': 'application/json',
-    'Access-Control-Allow-Origin': '*'
+    'Access-Control-Allow-Origin': allowed ? (origin || '*') : 'null'
   })
   res.end(JSON.stringify(body))
 }
@@ -165,19 +178,19 @@ const PAUSE_STATUS_MAP: Record<SkillPauseReason, number> = {
   pause_failed: 500
 }
 
-async function handleStart(res: http.ServerResponse): Promise<void> {
+async function handleStart(res: http.ServerResponse, requestOrigin?: string): Promise<void> {
   if (!controller) {
-    jsonResponse(res, 503, { ok: false, error: 'controller_unavailable' })
+    jsonResponse(res, 503, { ok: false, error: 'controller_unavailable' }, requestOrigin)
     return
   }
 
   if (skillOperationLock) {
-    jsonResponse(res, 409, { ok: false, error: 'operation_in_progress' })
+    jsonResponse(res, 409, { ok: false, error: 'operation_in_progress' }, requestOrigin)
     return
   }
 
   if (controller.isRunning()) {
-    jsonResponse(res, 409, { ok: false, error: 'already_running' })
+    jsonResponse(res, 409, { ok: false, error: 'already_running' }, requestOrigin)
     return
   }
 
@@ -185,7 +198,7 @@ async function handleStart(res: http.ServerResponse): Promise<void> {
   try {
     const result = await controller.start()
     if (result.ok) {
-      jsonResponse(res, 200, { ok: true })
+      jsonResponse(res, 200, { ok: true }, requestOrigin)
     } else {
       const reason = result.reason || 'engine_failed'
       const status = START_STATUS_MAP[reason] ?? 500
@@ -193,29 +206,29 @@ async function handleStart(res: http.ServerResponse): Promise<void> {
         ok: false,
         error: reason,
         message: result.message
-      })
+      }, requestOrigin)
     }
   } catch (error) {
     console.error('[Skill Server] start error:', error)
-    jsonResponse(res, 500, { ok: false, error: 'engine_failed' })
+    jsonResponse(res, 500, { ok: false, error: 'engine_failed' }, requestOrigin)
   } finally {
     skillOperationLock = false
   }
 }
 
-async function handlePause(res: http.ServerResponse): Promise<void> {
+async function handlePause(res: http.ServerResponse, requestOrigin?: string): Promise<void> {
   if (!controller) {
-    jsonResponse(res, 503, { ok: false, error: 'controller_unavailable' })
+    jsonResponse(res, 503, { ok: false, error: 'controller_unavailable' }, requestOrigin)
     return
   }
 
   if (skillOperationLock) {
-    jsonResponse(res, 409, { ok: false, error: 'operation_in_progress' })
+    jsonResponse(res, 409, { ok: false, error: 'operation_in_progress' }, requestOrigin)
     return
   }
 
   if (!controller.isRunning()) {
-    jsonResponse(res, 409, { ok: false, error: 'not_running' })
+    jsonResponse(res, 409, { ok: false, error: 'not_running' }, requestOrigin)
     return
   }
 
@@ -223,7 +236,7 @@ async function handlePause(res: http.ServerResponse): Promise<void> {
   try {
     const result = await controller.pause()
     if (result.ok) {
-      jsonResponse(res, 200, { ok: true })
+      jsonResponse(res, 200, { ok: true }, requestOrigin)
     } else {
       const reason = result.reason || 'pause_failed'
       const status = PAUSE_STATUS_MAP[reason] ?? 500
@@ -231,41 +244,41 @@ async function handlePause(res: http.ServerResponse): Promise<void> {
         ok: false,
         error: reason,
         message: result.message
-      })
+      }, requestOrigin)
     }
   } catch (error) {
     console.error('[Skill Server] pause error:', error)
-    jsonResponse(res, 500, { ok: false, error: 'pause_failed' })
+    jsonResponse(res, 500, { ok: false, error: 'pause_failed' }, requestOrigin)
   } finally {
     skillOperationLock = false
   }
 }
 
-function handleStatus(res: http.ServerResponse): void {
+function handleStatus(res: http.ServerResponse, requestOrigin?: string): void {
   if (!controller) {
-    jsonResponse(res, 503, { ok: false, error: 'controller_unavailable' })
+    jsonResponse(res, 503, { ok: false, error: 'controller_unavailable' }, requestOrigin)
     return
   }
   jsonResponse(res, 200, {
     ok: true,
     status: controller.isRunning() ? 'running' : 'stopped',
     port: currentPort
-  })
+  }, requestOrigin)
 }
 
-function handleAutopilotGet(res: http.ServerResponse): void {
+function handleAutopilotGet(res: http.ServerResponse, requestOrigin?: string): void {
   jsonResponse(res, 200, {
     ok: true,
     enabled: autopilotEnabled
-  })
+  }, requestOrigin)
 }
 
-async function handleAutopilotSet(res: http.ServerResponse, body: string): Promise<void> {
+async function handleAutopilotSet(res: http.ServerResponse, body: string, requestOrigin?: string): Promise<void> {
   let request: { enabled: boolean }
   try {
     request = JSON.parse(body) as { enabled: boolean }
   } catch {
-    jsonResponse(res, 400, { ok: false, error: 'invalid_json' })
+    jsonResponse(res, 400, { ok: false, error: 'invalid_json' }, requestOrigin)
     return
   }
 
@@ -277,15 +290,15 @@ async function handleAutopilotSet(res: http.ServerResponse, body: string): Promi
   jsonResponse(res, 200, {
     ok: true,
     enabled: autopilotEnabled
-  })
+  }, requestOrigin)
 }
 
-async function handleLog(res: http.ServerResponse, body: string): Promise<void> {
+async function handleLog(res: http.ServerResponse, body: string, requestOrigin?: string): Promise<void> {
   let logEntry: GlueLayerLog
   try {
     logEntry = JSON.parse(body) as GlueLayerLog
   } catch {
-    jsonResponse(res, 400, { ok: false, error: 'invalid_json' })
+    jsonResponse(res, 400, { ok: false, error: 'invalid_json' }, requestOrigin)
     return
   }
 
@@ -298,7 +311,7 @@ async function handleLog(res: http.ServerResponse, body: string): Promise<void> 
   const logJson = JSON.stringify(logEntry)
   broadcastToAllWindows('glue-layer:log', logJson)
 
-  jsonResponse(res, 200, { ok: true })
+  jsonResponse(res, 200, { ok: true }, requestOrigin)
 }
 
 /** 广播消息到所有 BrowserWindow */
@@ -310,19 +323,19 @@ function broadcastToAllWindows(channel: string, data: unknown): void {
   }
 }
 
-async function handleAlert(res: http.ServerResponse, body: string): Promise<void> {
+async function handleAlert(res: http.ServerResponse, body: string, requestOrigin?: string): Promise<void> {
   let alert: AlertData
   try {
     alert = JSON.parse(body) as AlertData
   } catch {
-    jsonResponse(res, 400, { ok: false, error: 'invalid_json' })
+    jsonResponse(res, 400, { ok: false, error: 'invalid_json' }, requestOrigin)
     return
   }
 
   // 去重检查
   const lastShown = alertDedupMap.get(alert.code)
   if (lastShown && Date.now() - lastShown < ALERT_DEDUP_MS) {
-    jsonResponse(res, 200, { ok: true, deduplicated: true })
+    jsonResponse(res, 200, { ok: true, deduplicated: true }, requestOrigin)
     return
   }
   alertDedupMap.set(alert.code, Date.now())
@@ -330,12 +343,12 @@ async function handleAlert(res: http.ServerResponse, body: string): Promise<void
   // 推送到所有窗口
   broadcastToAllWindows('wechat-agent:alert-pushed', alert)
 
-  jsonResponse(res, 200, { ok: true })
+  jsonResponse(res, 200, { ok: true }, requestOrigin)
 }
 
-async function handleSendMessage(res: http.ServerResponse, body: string): Promise<void> {
+async function handleSendMessage(res: http.ServerResponse, body: string, requestOrigin?: string): Promise<void> {
   if (!controller) {
-    jsonResponse(res, 503, { ok: false, error: 'controller_unavailable' })
+    jsonResponse(res, 503, { ok: false, error: 'controller_unavailable' }, requestOrigin)
     return
   }
 
@@ -347,12 +360,12 @@ async function handleSendMessage(res: http.ServerResponse, body: string): Promis
   try {
     request = JSON.parse(body) as SendMessageRequest
   } catch {
-    jsonResponse(res, 400, { ok: false, error: 'invalid_json' })
+    jsonResponse(res, 400, { ok: false, error: 'invalid_json' }, requestOrigin)
     return
   }
 
   if (!request.contact || !request.message) {
-    jsonResponse(res, 400, { ok: false, error: 'missing_contact_or_message' })
+    jsonResponse(res, 400, { ok: false, error: 'missing_contact_or_message' }, requestOrigin)
     return
   }
 
@@ -365,13 +378,13 @@ async function handleSendMessage(res: http.ServerResponse, body: string): Promis
       jsonResponse(res, 200, {
         ok: true,
         elapsed_ms: Date.now() - startTime
-      })
+      }, requestOrigin)
     } else {
       jsonResponse(res, 500, {
         ok: false,
         error: result.error || 'send_failed',
         elapsed_ms: Date.now() - startTime
-      })
+      }, requestOrigin)
     }
   } catch (error: any) {
     console.error('[Skill Server] send-message error:', error)
@@ -379,13 +392,13 @@ async function handleSendMessage(res: http.ServerResponse, body: string): Promis
       ok: false,
       error: 'send_failed',
       message: error?.message || String(error)
-    })
+    }, requestOrigin)
   }
 }
 
-async function handleGenerateReply(res: http.ServerResponse, body: string): Promise<void> {
+async function handleGenerateReply(res: http.ServerResponse, body: string, requestOrigin?: string): Promise<void> {
   if (!controller) {
-    jsonResponse(res, 503, { ok: false, error: 'controller_unavailable' })
+    jsonResponse(res, 503, { ok: false, error: 'controller_unavailable' }, requestOrigin)
     return
   }
 
@@ -394,12 +407,12 @@ async function handleGenerateReply(res: http.ServerResponse, body: string): Prom
   try {
     request = JSON.parse(body) as GenerateReplyRequest
   } catch {
-    jsonResponse(res, 400, { ok: false, error: 'invalid_json' })
+    jsonResponse(res, 400, { ok: false, error: 'invalid_json' }, requestOrigin)
     return
   }
 
   if (!request.context) {
-    jsonResponse(res, 400, { ok: false, error: 'missing_context' })
+    jsonResponse(res, 400, { ok: false, error: 'missing_context' }, requestOrigin)
     return
   }
 
@@ -416,13 +429,13 @@ async function handleGenerateReply(res: http.ServerResponse, body: string): Prom
         ok: true,
         reply: result.reply,
         elapsed_ms: Date.now() - startTime
-      })
+      }, requestOrigin)
     } else {
       jsonResponse(res, 500, {
         ok: false,
         error: result.error || 'generate_failed',
         elapsed_ms: Date.now() - startTime
-      })
+      }, requestOrigin)
     }
   } catch (error: any) {
     console.error('[Skill Server] generate-reply error:', error)
@@ -430,16 +443,18 @@ async function handleGenerateReply(res: http.ServerResponse, body: string): Prom
       ok: false,
       error: 'generate_failed',
       message: error?.message || String(error)
-    })
+    }, requestOrigin)
   }
 }
 
 async function requestHandler(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
   const { method, url } = req
+  const requestOrigin = req.headers.origin
 
   if (method === 'OPTIONS') {
+    const allowed = isAllowedOrigin(requestOrigin)
     res.writeHead(204, {
-      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Origin': allowed ? (requestOrigin || '*') : 'null',
       'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type'
     })
@@ -450,35 +465,35 @@ async function requestHandler(req: http.IncomingMessage, res: http.ServerRespons
   try {
     if (url === '/skill/start' && method === 'POST') {
       await readBody(req)
-      await handleStart(res)
+      await handleStart(res, requestOrigin)
     } else if (url === '/skill/pause' && method === 'POST') {
       await readBody(req)
-      await handlePause(res)
+      await handlePause(res, requestOrigin)
     } else if (url === '/skill/status' && method === 'GET') {
-      handleStatus(res)
+      handleStatus(res, requestOrigin)
     } else if (url === '/skill/autopilot' && method === 'GET') {
-      handleAutopilotGet(res)
+      handleAutopilotGet(res, requestOrigin)
     } else if (url === '/skill/autopilot' && method === 'POST') {
       const body = await readBody(req)
-      await handleAutopilotSet(res, body)
+      await handleAutopilotSet(res, body, requestOrigin)
     } else if (url === '/skill/send-message' && method === 'POST') {
       const body = await readBody(req)
-      await handleSendMessage(res, body)
+      await handleSendMessage(res, body, requestOrigin)
     } else if (url === '/skill/generate-reply' && method === 'POST') {
       const body = await readBody(req)
-      await handleGenerateReply(res, body)
+      await handleGenerateReply(res, body, requestOrigin)
     } else if (url === '/skill/log' && method === 'POST') {
       const body = await readBody(req)
-      await handleLog(res, body)
+      await handleLog(res, body, requestOrigin)
     } else if (url === '/skill/alert' && method === 'POST') {
       const body = await readBody(req)
-      await handleAlert(res, body)
+      await handleAlert(res, body, requestOrigin)
     } else {
-      jsonResponse(res, 404, { ok: false, error: 'not_found' })
+      jsonResponse(res, 404, { ok: false, error: 'not_found' }, requestOrigin)
     }
   } catch (error) {
     console.error('[Skill Server] 请求处理异常:', error)
-    jsonResponse(res, 500, { ok: false, error: 'internal_error' })
+    jsonResponse(res, 500, { ok: false, error: 'internal_error' }, requestOrigin)
   }
 }
 
@@ -493,7 +508,7 @@ export function startSkillServer(engineController: SkillEngineControllerWithSend
     requestHandler(req, res).catch((error) => {
       console.error('[Skill Server] Unhandled error:', error)
       try {
-        jsonResponse(res, 500, { ok: false, error: 'internal_error' })
+        jsonResponse(res, 500, { ok: false, error: 'internal_error' }, req.headers.origin)
       } catch {
         // response 可能已经发送
       }
