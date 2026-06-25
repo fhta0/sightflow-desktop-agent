@@ -1029,3 +1029,63 @@ textarea.form-input {
   font-size: 18px;
   color: inherit;
 }
+
+/* ─── Component Status Panel ─── */
+.component-status-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.component-status-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.component-status-name {
+  flex: 1;
+  color: var(--text-primary);
+}
+
+.component-status-label {
+  color: var(--text-secondary);
+  font-size: 12px;
+  min-width: 60px;
+  text-align: right;
+}
+
+.component-status-action {
+  width: 24px;
+  height: 24px;
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-glass);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--transition-fast);
+}
+
+.component-status-action:hover {
+  color: var(--text-primary);
+  background: var(--bg-glass-heavy);
+  border-color: var(--glass-border-light);
+}
+
+.component-status-action:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.status-dot-error {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--error);
+  flex-shrink: 0;
+}

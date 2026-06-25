@@ -324,6 +324,9 @@ function ControlPanel() {
         </div>
       </div>
 
+      {/* 组件状态面板 */}
+      <ComponentStatus serverPort={serverPort} />
+
       {/* 消息日志 */}
       <div className="card">
         <div className="card-title">消息日志</div>
@@ -348,6 +351,96 @@ function ControlPanel() {
               </div>
             ))
           )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+type GlueLayerStatus = 'stopped' | 'starting' | 'running' | 'crashed' | 'failed'
+
+function ComponentStatus({ serverPort }: { serverPort: number }): React.JSX.Element {
+  const [glueStatus, setGlueStatus] = useState<GlueLayerStatus>('stopped')
+  const [sightflowOk, setSightflowOk] = useState(false)
+  const [restarting, setRestarting] = useState(false)
+
+  // 初始获取状态
+  useEffect(() => {
+    void (async () => {
+      try {
+        const status = await window.electron?.wechatAgent?.getGlueLayerStatus()
+        if (status) setGlueStatus(status as GlueLayerStatus)
+      } catch { /* ignore */ }
+
+      // 检测 SightFlow 服务
+      try {
+        const r = await fetch(`http://127.0.0.1:${serverPort}/skill/status`)
+        setSightflowOk(r.ok)
+      } catch {
+        setSightflowOk(false)
+      }
+    })()
+  }, [serverPort])
+
+  // 监听 glue-layer 状态变化
+  useEffect(() => {
+    const cleanup = window.electron?.on('wechat-agent:glue-layer-status', (status: string) => {
+      setGlueStatus(status as GlueLayerStatus)
+    })
+    return cleanup
+  }, [])
+
+  const handleRestart = useCallback(async () => {
+    setRestarting(true)
+    try {
+      await window.electron?.wechatAgent?.restartGlueLayer()
+    } catch { /* ignore */ }
+    setTimeout(() => setRestarting(false), 2000)
+  }, [])
+
+  const statusLabel = (s: GlueLayerStatus): string => {
+    const map: Record<GlueLayerStatus, string> = {
+      running: '运行中',
+      starting: '启动中',
+      stopped: '已停止',
+      crashed: '已崩溃',
+      failed: '启动失败'
+    }
+    return map[s] || s
+  }
+
+  const statusDotClass = (s: GlueLayerStatus): string => {
+    if (s === 'running') return 'status-dot-running'
+    if (s === 'starting') return 'status-dot-waiting'
+    return 'status-dot-error'
+  }
+
+  return (
+    <div className="card" style={{ marginBottom: 12 }}>
+      <div className="card-title">组件状态</div>
+      <div className="component-status-list">
+        {/* SightFlow 发送服务 */}
+        <div className="component-status-row">
+          <span className={sightflowOk ? 'status-dot-running' : 'status-dot-error'} />
+          <span className="component-status-name">SightFlow 发送服务</span>
+          <span className="component-status-label">
+            {sightflowOk ? '运行中' : '未连接'}
+          </span>
+        </div>
+
+        {/* 粘合层 */}
+        <div className="component-status-row">
+          <span className={statusDotClass(glueStatus)} />
+          <span className="component-status-name">粘合层</span>
+          <span className="component-status-label">{statusLabel(glueStatus)}</span>
+          <button
+            className="component-status-action"
+            onClick={handleRestart}
+            disabled={restarting}
+            title="重启粘合层"
+          >
+            {restarting ? '…' : '↻'}
+          </button>
         </div>
       </div>
     </div>
