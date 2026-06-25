@@ -2,6 +2,7 @@ import { useState, useCallback, useRef, useEffect, useMemo } from 'react'
 import { t } from './i18n'
 import logoUrl from './assets/logo.png'
 import { WechatAgentSettings } from './WechatAgentSettings'
+import { OnboardingWizard } from './OnboardingWizard'
 import { AlertData } from './types'
 import './index.css'
 
@@ -178,8 +179,27 @@ function ControlPanel() {
   const [autopilotEnabled, setAutopilotEnabled] = useState(true)
   const [serverPort, setServerPort] = useState(12680)
   const [currentAlert, setCurrentAlert] = useState<AlertData | null>(null)
+  const [showOnboarding, setShowOnboarding] = useState(false)
+  const [onboardingChecked, setOnboardingChecked] = useState(false)
   const logRef = useRef<HTMLDivElement>(null)
   const listenerAttached = useRef(false)
+
+  // 检查是否需要引导（首次启动）
+  useEffect(() => {
+    if (onboardingChecked) return
+    void (async () => {
+      try {
+        const config = await window.electron?.invoke('wechat-agent:loadConfig')
+        if (!config || !config.identity?.wxid) {
+          setShowOnboarding(true)
+        }
+      } catch {
+        // 加载失败时也显示引导
+        setShowOnboarding(true)
+      }
+      setOnboardingChecked(true)
+    })()
+  }, [onboardingChecked])
 
   // 监听粘合层日志（防止 HMR 导致重复注册）
   useEffect(() => {
@@ -353,6 +373,11 @@ function ControlPanel() {
           )}
         </div>
       </div>
+
+      {/* 首次启动引导 */}
+      {showOnboarding && (
+        <OnboardingWizard onComplete={() => setShowOnboarding(false)} />
+      )}
     </div>
   )
 }
