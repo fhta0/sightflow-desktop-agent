@@ -3,6 +3,7 @@ import { t } from './i18n'
 import logoUrl from './assets/logo.png'
 import { WechatAgentSettings } from './WechatAgentSettings'
 import { OnboardingWizard } from './OnboardingWizard'
+import { LogViewer } from './LogViewer'
 import { AlertData } from './types'
 import './index.css'
 
@@ -13,7 +14,7 @@ interface LogEntry {
   content: string
 }
 
-type SettingsSection = 'base' | 'agent' | 'wechat-agent'
+type SettingsSection = 'base' | 'agent' | 'wechat-agent' | 'logs'
 type AppType = 'wechat' | 'wework' | 'dingtalk' | 'lark' | 'slack' | 'telegram' | 'generic'
 
 interface AppSettings {
@@ -544,6 +545,12 @@ function SettingsWindow(): React.JSX.Element {
         >
           微信 Agent
         </button>
+        <button
+          className={`settings-nav-item ${section === 'logs' ? 'active' : ''}`}
+          onClick={() => setSection('logs')}
+        >
+          日志
+        </button>
       </aside>
 
       <main className="settings-main">
@@ -551,6 +558,8 @@ function SettingsWindow(): React.JSX.Element {
           <SettingsPanel />
         ) : section === 'agent' ? (
           <AgentPanel />
+        ) : section === 'logs' ? (
+          <LogViewer />
         ) : (
           <WechatAgentSettings />
         )}
