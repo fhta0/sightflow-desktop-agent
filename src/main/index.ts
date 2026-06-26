@@ -783,14 +783,14 @@ app.whenReady().then(async () => {
     }
     if (!result.wxExists) return { ok: false, ...result, error: 'wx-cli 不存在' }
 
-    // 测试 wx ping
+    // 测试 wx daemon status（检查 daemon 是否运行）
     try {
-      const { stdout } = await execFileAsync(wxPath, ['ping', '--json'], { timeout: 5000, encoding: 'utf-8' })
-      result.ping = JSON.parse(stdout)
-      result.pingOk = true
+      const { stdout } = await execFileAsync(wxPath, ['daemon', 'status', '--json'], { timeout: 5000, encoding: 'utf-8' })
+      result.daemonStatus = JSON.parse(stdout)
+      result.daemonOk = true
     } catch (e: any) {
-      result.pingOk = false
-      result.pingError = e.stderr || e.message
+      result.daemonOk = false
+      result.daemonError = e.stderr || e.message
     }
 
     // 测试 wx contacts（获取当前用户 wxid）

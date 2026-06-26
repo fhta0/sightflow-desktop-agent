@@ -191,7 +191,7 @@ export function WechatAgentSettings(): React.JSX.Element {
                       `wx-cli 路径: ${diag.wxPath}`,
                       `wx-cli 存在: ${diag.wxExists ? '✓' : '✗'}`,
                       `glue-layer 状态: ${diag.glueLayerStatus}`,
-                      `ping: ${diag.pingOk ? '✓' : '✗ ' + (diag.pingError || '')}`,
+                      `daemon: ${diag.daemonOk ? '✓' : '✗ ' + (diag.daemonError || '')}`,
                       `whoami: ${diag.whoamiOk ? '✓ wxid=' + diag.whoami?.wxid : '✗ ' + (diag.whoamiError || '')}`,
                       `sessions: ${diag.sessionsOk ? '✓ (' + diag.sessionCount + ' 个会话)' : '✗ ' + (diag.sessionsError || '')}`,
                     ]
