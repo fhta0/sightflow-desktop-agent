@@ -31,6 +31,8 @@ screenshot_*.png
 
 # TypeScript incremental build info
 *.tsbuildinfo
-resources/wechat/*.exe
-resources/glue-layer/*.exe
-resources/wx-cli/*.exe
+
+# Build artifacts in resources (compiled binaries)
+resources/wechat/
+resources/glue-layer/
+resources/wx-cli/
