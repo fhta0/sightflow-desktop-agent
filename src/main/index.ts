@@ -664,7 +664,18 @@ app.whenReady().then(async () => {
 
   // 微信 Agent: 获取群组列表（从 wx sessions）
   ipcMain.handle('wechat-agent:getGroups', async (_event, wxCliPath?: string) => {
-    const wxPath = wxCliPath || 'wx'
+    // 优先使用传入路径，不可用则回退到打包的 wx.exe
+    let wxPath = wxCliPath || 'wx'
+    if (wxPath === 'wx' || !fs.existsSync(wxPath)) {
+      const bundled = getWxCliPath()
+      if (fs.existsSync(bundled)) {
+        wxPath = bundled
+      }
+    }
+    console.log('[wechat-agent:getGroups] using wxPath:', wxPath, '(exists:', fs.existsSync(wxPath), ')')
+    if (!fs.existsSync(wxPath)) {
+      return { ok: false, error: `wx-cli 不存在: ${wxPath}`, groups: [] }
+    }
     try {
       const { stdout } = await execFileAsync(wxPath, ['sessions', '-n', '1000', '--json'], {
         timeout: 15000,
@@ -676,26 +687,63 @@ app.whenReady().then(async () => {
       const groups = sessions
         .filter((s: any) => s.chat_type === 'group')
         .map((s: any) => ({ room_id: s.username, name: s.chat }))
-      return { ok: true, groups }
+      return { ok: true, groups, debug: { wxPath, sessionCount: sessions.length } }
     } catch (e: any) {
-      console.error('[wechat-agent:getGroups] error:', e)
-      return { ok: false, error: e.message, groups: [] }
+      console.error('[wechat-agent:getGroups] error:', e.message, e.stderr)
+      return { ok: false, error: `wx sessions 失败: ${e.stderr || e.message}`, groups: [], debug: { wxPath } }
     }
   })
 
   // 微信 Agent: 自动检测 wxid
   ipcMain.handle('wechat-agent:detectWxid', async (_event, wxCliPath?: string) => {
-    const wxPath = wxCliPath || 'wx'
+    // 优先使用传入路径，不可用则回退到打包的 wx.exe
+    let wxPath = wxCliPath || 'wx'
+    if (wxPath === 'wx' || !fs.existsSync(wxPath)) {
+      const bundled = getWxCliPath()
+      if (fs.existsSync(bundled)) {
+        wxPath = bundled
+      }
+    }
+    console.log('[wechat-agent:detectWxid] using wxPath:', wxPath, '(exists:', fs.existsSync(wxPath), ')')
+    if (!fs.existsSync(wxPath)) {
+      return { ok: false, error: `wx-cli 不存在: ${wxPath}`, wxid: '' }
+    }
+
+    // 方式 1：尝试 wx whoami --json（新版 wx-cli 支持）
     try {
-      const { stdout } = await execFileAsync(wxPath, ['whoami'], {
+      const { stdout } = await execFileAsync(wxPath, ['whoami', '--json'], {
         timeout: 10000,
         encoding: 'utf-8'
       })
       const data = JSON.parse(stdout)
-      return { ok: true, wxid: data.wxid || '' }
+      if (data.wxid) {
+        return { ok: true, wxid: data.wxid }
+      }
     } catch (e: any) {
-      // wx whoami 可能不存在
-      return { ok: false, error: e.message, wxid: '' }
+      // whoami 不支持，尝试方式 2
+      console.log('[wechat-agent:detectWxid] whoami 不可用，使用 contacts 回退')
+    }
+
+    // 方式 2：从 wx contacts 中提取当前用户 wxid
+    // contacts 列表的第一个条目 display 为 "192" 的就是当前登录用户
+    try {
+      const { stdout } = await execFileAsync(wxPath, ['contacts', '--json'], {
+        timeout: 15000,
+        encoding: 'utf-8'
+      })
+      const contacts = JSON.parse(stdout)
+      if (Array.isArray(contacts) && contacts.length > 0) {
+        // 查找 display 为 "192" 的条目（微信内部标识当前用户）
+        const selfContact = contacts.find((c: any) => c.display === '192')
+          || contacts.find((c: any) => c.username?.startsWith('wxid_'))
+        if (selfContact?.username) {
+          return { ok: true, wxid: selfContact.username }
+        }
+      }
+      return { ok: false, error: '无法从联系人列表识别 wxid', wxid: '' }
+    } catch (e: any) {
+      console.error('[wechat-agent:detectWxid] contacts 回退也失败:', e.message, e.stderr)
+      return { ok: false, error: `检测失败: ${e.stderr || e.message}`, wxid: '' }
     }
   })
 
@@ -716,6 +764,64 @@ app.whenReady().then(async () => {
   ipcMain.handle('wechat-agent:restartGlueLayer', () => {
     glueLayerManager?.restart()
     return { ok: true }
+  })
+
+  // 微信 Agent: 获取打包的 wx-cli 路径
+  ipcMain.handle('wechat-agent:getBundledWxPath', () => {
+    return getWxCliPath()
+  })
+
+  // 微信 Agent: 诊断 wx-cli 状态
+  ipcMain.handle('wechat-agent:diagnose', async () => {
+    const wxPath = getWxCliPath()
+    const result: Record<string, any> = {
+      wxPath,
+      wxExists: fs.existsSync(wxPath),
+      glueLayerPath: getGlueLayerPath(),
+      glueLayerExists: fs.existsSync(getGlueLayerPath()),
+      glueLayerStatus: glueLayerManager?.status ?? 'stopped',
+    }
+    if (!result.wxExists) return { ok: false, ...result, error: 'wx-cli 不存在' }
+
+    // 测试 wx ping
+    try {
+      const { stdout } = await execFileAsync(wxPath, ['ping', '--json'], { timeout: 5000, encoding: 'utf-8' })
+      result.ping = JSON.parse(stdout)
+      result.pingOk = true
+    } catch (e: any) {
+      result.pingOk = false
+      result.pingError = e.stderr || e.message
+    }
+
+    // 测试 wx contacts（获取当前用户 wxid）
+    try {
+      const { stdout } = await execFileAsync(wxPath, ['contacts', '--json'], { timeout: 10000, encoding: 'utf-8' })
+      const contacts = JSON.parse(stdout)
+      if (Array.isArray(contacts) && contacts.length > 0) {
+        const selfContact = contacts.find((c: any) => c.display === '192') || contacts[0]
+        result.whoami = { wxid: selfContact?.username || '' }
+        result.whoamiOk = true
+      } else {
+        result.whoamiOk = false
+        result.whoamiError = '联系人列表为空'
+      }
+    } catch (e: any) {
+      result.whoamiOk = false
+      result.whoamiError = e.stderr || e.message
+    }
+
+    // 测试 wx sessions
+    try {
+      const { stdout } = await execFileAsync(wxPath, ['sessions', '-n', '10', '--json'], { timeout: 10000, encoding: 'utf-8' })
+      const data = JSON.parse(stdout)
+      result.sessionCount = (data.sessions || []).length
+      result.sessionsOk = true
+    } catch (e: any) {
+      result.sessionsOk = false
+      result.sessionsError = e.stderr || e.message
+    }
+
+    return { ok: true, ...result }
   })
 
   // 微信 Agent: 检测微信安装状态
@@ -1035,7 +1141,8 @@ const skillEngineController: SkillEngineControllerWithSend = {
       // 获取当前配置
       const settings = normalizeSettings(settingsStore.store)
       const providerConfig = settings.chatProvider.config || {}
-      const apiKey = providerConfig.apiKey || ''
+      // 优先从 provider config 取 key，回退到视觉接口密钥（用户在基础配置中设置的）
+      const apiKey = providerConfig.apiKey || settings.vision.apiKey || ''
 
       if (!apiKey) {
         console.error('[generateReply] 未配置 API Key')

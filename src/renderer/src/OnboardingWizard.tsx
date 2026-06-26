@@ -53,11 +53,19 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps): React.J
   const handleDetectWxid = useCallback(async () => {
     setDetecting(true)
     try {
-      const result = await window.electron?.invoke('wechat-agent:detectWxid', 'wx')
+      // 使用打包的 wx-cli 路径
+      const bundledPath = await window.electron?.invoke('wechat-agent:getBundledWxPath')
+      const result = await window.electron?.invoke('wechat-agent:detectWxid', bundledPath || 'wx')
       if (result?.ok && result.wxid) {
         setWxid(result.wxid)
+      } else if (!result?.ok) {
+        alert(`自动检测失败: ${result?.error || '未知错误'}`)
+      } else if (!result.wxid) {
+        alert('未能检测到 wxid，请手动输入')
       }
-    } catch { /* ignore */ }
+    } catch (e: any) {
+      alert(`自动检测异常: ${e?.message || e}`)
+    }
     setDetecting(false)
   }, [])
 
@@ -76,11 +84,13 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps): React.J
   const handleSave = useCallback(async () => {
     setSaving(true)
     try {
+      // 使用打包的 wx-cli 路径而非 'wx'（客户机器上 wx 不在 PATH 中）
+      const bundledWxPath = await window.electron?.invoke('wechat-agent:getBundledWxPath')
       const config = {
         version: 1,
         identity: { wxid, names },
         groups: { monitor: [] },
-        advanced: { wx_cli_path: 'wx' }
+        advanced: { wx_cli_path: bundledWxPath || 'wx' }
       }
       await window.electron?.invoke('wechat-agent:saveConfig', config)
     } catch { /* ignore */ }

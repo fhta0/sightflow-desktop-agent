@@ -89,7 +89,7 @@ export function WechatAgentSettings(): React.JSX.Element {
     if (result?.ok && result.wxid) {
       setConfig(prev => ({ ...prev, identity: { ...prev.identity, wxid: result.wxid } }))
     } else if (!result?.ok) {
-      alert('自动检测失败，请确认 wx-cli 已升级到支持 whoami 的版本')
+      alert(`自动检测失败: ${result?.error || '未知错误'}`)
     } else if (!result.wxid) {
       alert('未能检测到 wxid，请手动输入')
     }
@@ -162,11 +162,46 @@ export function WechatAgentSettings(): React.JSX.Element {
 
       {/* 监控群组 */}
       <div className="card">
-        <div className="card-title">监控群组</div>
+        <div className="card-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span>监控群组</span>
+          <button
+            className="btn btn-secondary"
+            style={{ fontSize: '12px', padding: '4px 10px' }}
+            onClick={async () => {
+              const loaded = await loadConfig()
+              const wxCliPath = loaded?.advanced.wx_cli_path || 'wx'
+              await loadGroups(wxCliPath)
+            }}
+          >
+            🔄 刷新
+          </button>
+        </div>
         <div className="form-group">
           <p className="form-hint">勾选要开启自动回复的群</p>
           {availableGroups.length === 0 ? (
-            <p className="form-hint">未找到群组，请确认 wx-cli daemon 已启动</p>
+            <div>
+              <p className="form-hint">未找到群组</p>
+              <button
+                className="btn btn-secondary"
+                style={{ marginTop: '8px', fontSize: '12px' }}
+                onClick={async () => {
+                  const diag = await window.electron?.invoke('wechat-agent:diagnose')
+                  if (diag) {
+                    const lines = [
+                      `wx-cli 路径: ${diag.wxPath}`,
+                      `wx-cli 存在: ${diag.wxExists ? '✓' : '✗'}`,
+                      `glue-layer 状态: ${diag.glueLayerStatus}`,
+                      `ping: ${diag.pingOk ? '✓' : '✗ ' + (diag.pingError || '')}`,
+                      `whoami: ${diag.whoamiOk ? '✓ wxid=' + diag.whoami?.wxid : '✗ ' + (diag.whoamiError || '')}`,
+                      `sessions: ${diag.sessionsOk ? '✓ (' + diag.sessionCount + ' 个会话)' : '✗ ' + (diag.sessionsError || '')}`,
+                    ]
+                    alert(lines.join('\n'))
+                  }
+                }}
+              >
+                🔍 运行诊断
+              </button>
+            </div>
           ) : (
             <div className="group-list">
               {availableGroups.map(group => (

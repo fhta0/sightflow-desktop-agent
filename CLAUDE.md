@@ -105,6 +105,12 @@ A local HTTP API on port 12680 (fallback to 12681 if occupied) enables external 
 - `GET /skill/status` — Query running status
 - `POST /skill/start` — Start the engine
 - `POST /skill/pause` — Stop the engine
+- `GET/POST /skill/autopilot` — Query/set autopilot state (defaults to **enabled**)
+- `POST /skill/send-message` — Send message to a contact
+- `POST /skill/generate-reply` — Generate AI reply using configured Provider (uses `vision.apiKey` as fallback)
+- `GET /skill/logs` — Return buffered log history (last 500 entries, for LogViewer)
+- `POST /skill/log` — Receive glue-layer logs and broadcast to UI
+- `POST /skill/alert` — Receive glue-layer alerts and broadcast to UI (dedup 5 min)
 
 Used by external tools (e.g., OpenClaw) for automation integration. Defined in `src/main/skill-server.ts`.
 
@@ -131,8 +137,14 @@ Test CLI entry: `scripts/test-cli.ts` compiled to `out/main/test-cli.js`
 ```
 src/
   main/          # Electron main process
+    skill-server.ts  # HTTP API (:12680) for external control + log buffering
+    index.ts         # Entry point, IPC handlers, settings, engine control
   preload/       # Preload scripts with IPC type definitions
   renderer/src/  # React UI components
+    App.tsx          # Main app with ControlPanel + SettingsWindow
+    LogViewer.tsx    # Settings → 日志 tab (history fetch + real-time IPC)
+    OnboardingWizard.tsx  # First-launch setup wizard
+    WechatAgentSettings.tsx  # WeChat Agent settings panel
   core/          # Business logic
     rpa/         # RPA utilities (screenshot, window, vision, input)
   core/rpa/types.ts     # Core type definitions (AppType, CaptureStrategy, BoxRegions)
@@ -152,3 +164,6 @@ resources/
 - **State Machine**: GenericChannelSession uses explicit state transitions with `wait_retry` delays
 - **i18n**: Simple locale system in `src/renderer/src/i18n.ts` with `t(key)` function; supports `zh`/`en`
 - **Settings Window**: Separate BrowserWindow with query param `?window=settings`, same preload/React bundle
+- **wxid Auto-Detection**: `wechat-agent:detectWxid` tries `wx whoami --json` first, falls back to `wx contacts --json` (self user has `display: "192"`). Bundled wx-cli may not support `whoami`.
+- **Log Buffering**: skill-server maintains a 500-entry circular buffer (`logBuffer`) for `GET /skill/logs`. LogViewer fetches history on mount, then listens to `wechat-agent:glue-layer-log` IPC for real-time updates.
+- **generateReply API Key**: Falls back to `settings.vision.apiKey` when `chatProvider.config.apiKey` is empty — the visual API key is shared with the text reply provider (doubao).

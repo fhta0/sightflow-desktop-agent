@@ -4,16 +4,19 @@ const electronHandler = {
   invoke: (channel: string, ...args: any[]) => ipcRenderer.invoke(channel, ...args),
   on: (channel: string, callback: (...args: any[]) => void) => {
     const handler = (_: any, ...args: any[]) => {
-      // 对于 glue-layer:log 事件，解析 JSON 字符串
-      if (channel === 'glue-layer:log' && typeof args[0] === 'string') {
+      // 对于 wechat-agent:glue-layer-log 事件，尝试解析 JSON 字符串（兼容两种格式）
+      if (channel === 'wechat-agent:glue-layer-log' && typeof args[0] === 'string') {
         try {
-          callback(JSON.parse(args[0]))
+          const parsed = JSON.parse(args[0])
+          if (parsed && typeof parsed === 'object' && parsed.type) {
+            callback(parsed)
+            return
+          }
         } catch {
-          callback(args[0])
+          // 不是 JSON，传递原始文本
         }
-      } else {
-        callback(...args)
       }
+      callback(...args)
     }
     ipcRenderer.on(channel, handler)
     return () => {
@@ -27,6 +30,7 @@ const electronHandler = {
     restartGlueLayer: () => ipcRenderer.invoke('wechat-agent:restartGlueLayer'),
     checkWeChat: () => ipcRenderer.invoke('wechat-agent:checkWeChat'),
     installWeChat: () => ipcRenderer.invoke('wechat-agent:installWeChat'),
+    getBundledWxPath: () => ipcRenderer.invoke('wechat-agent:getBundledWxPath'),
   }
 }
 

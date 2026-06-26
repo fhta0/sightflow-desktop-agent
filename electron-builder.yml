@@ -1,5 +1,5 @@
 appId: com.sightflow.desktop
-productName: SightFlow
+productName: 微信-Driverless
 directories:
   buildResources: build
 files:
@@ -22,7 +22,7 @@ extraResources:
     to: "wechat/"
     filter: ["**/*.exe"]
 win:
-  executableName: SightFlow
+  executableName: 微信-Driverless
 nsis:
   artifactName: ${name}-${version}-setup.${ext}
   shortcutName: ${productName}

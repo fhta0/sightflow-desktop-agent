@@ -24,7 +24,7 @@ Official website： [https://sightflow.dev](https://sightflow.dev/)
 ### 如何配置
 1. 请前往 [火山引擎控制台 - 方舟原生接口](https://console.volcengine.com/ark) 开通相关服务，并生成/获取你的 API Key。
 2. 启动项目后点击主界面右下角的设置按钮，打开独立设置窗口。
-3. 在**基础配置**中填写 API Key。默认 Base URL 为 `https://ark.cn-beijing.volces.com/api/v3`，通常无需修改。
+3. 在**基础配置**中填写 API Key。默认 Base URL 为 `https://ark.cn-beijing.volces.com/api/plan/v3`，通常无需修改。此密钥同时用于 VLM 视觉定位和 AI 文本回复。
 4. 在**智能体**中选择当前使用的 Provider。内置默认智能体为**豆包 Seed**，模型固定为 `doubao-seed-2-0-lite-260428`。
 
 ### 界面预览
@@ -32,6 +32,27 @@ Official website： [https://sightflow.dev](https://sightflow.dev/)
 | 主界面 | 基础配置 | 智能体配置 |
 | --- | --- | --- |
 | <img width="240" alt="SightFlow 主界面" src="./docs/images/main.png" /> | <img width="360" alt="SightFlow 基础配置" src="./docs/images/settings-base.png" /> | <img width="360" alt="SightFlow 智能体配置" src="./docs/images/settings-provider.png" /> |
+
+## 微信 Agent 自动回复
+
+SightFlow 内置微信自动回复功能，通过粘合层（glue-layer）连接 wx-cli 和 AI Provider：
+
+- **自动驾驶**：安装后默认启用，自动监控微信消息并生成回复
+- **wxid 自动检测**：启动时通过 `wx contacts` 自动识别当前登录用户（回退机制：先尝试 `wx whoami`，不可用时从联系人列表提取）
+- **视觉接口密钥**：基础配置中的 API Key 同时用于 VLM 视觉定位和 AI 文本回复（豆包 Provider 共享此密钥）
+- **日志查看器**：设置 → 日志 tab 实时显示消息处理日志，支持按类型过滤、搜索、暂停/继续
+
+### 日志类型
+
+| 类型 | 说明 | 触发时机 |
+|------|------|----------|
+| 收到 | 收到新消息 | 每条私聊/群聊消息 |
+| 回复 | AI 生成并发送回复 | AI 返回非 [SKIP] 回复 |
+| 跳过 | AI 决定不回复 | AI 返回 [SKIP] 或无回复 |
+| 监控 | 群消息监控（未 @） | 群聊消息无 @提及 |
+| 错误 | 处理异常 | 映射表加载失败等 |
+| 信息 | 系统信息 | 启动、配置变更等 |
+| 心跳 | 轮询状态 | 每 ~60 秒 |
 
 ## 目标应用与框选模式
 

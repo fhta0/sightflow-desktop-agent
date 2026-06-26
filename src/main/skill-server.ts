@@ -1,16 +1,18 @@
 /**
  * Skill HTTP Server — 为 OpenClaw / Python 粘合层提供本地 HTTP 控制接口
  *
- * 仅监听 127.0.0.1，提供以下端点：
+ * 仅监听 127.0.0.1:12680，提供以下端点：
  * - POST /skill/start  — 启动智能体（SightFlow 内置引擎）
  * - POST /skill/pause  — 暂停智能体
  * - GET  /skill/status — 查询当前运行状态
- * - GET/POST /skill/autopilot — 查询/设置自动驾驶状态（Python 粘合层）
- * - POST /skill/send-message — 发送消息给联系人
- * - POST /skill/generate-reply — 使用配置的 Provider 生成回复（统一 AI 调用）
- * - POST /skill/log — 接收粘合层日志并广播到 UI
+ * - GET/POST /skill/autopilot — 查询/设置自动驾驶状态（默认启用，持久化到 electron-store）
+ * - POST /skill/send-message — 发送消息给联系人（与引擎互斥，防止键鼠冲突）
+ * - POST /skill/generate-reply — 使用配置的 Provider 生成回复（回退 vision.apiKey）
+ * - POST /skill/log — 接收粘合层日志，缓冲（500 条）并广播到 UI
+ * - GET  /skill/logs — 返回缓冲区历史日志（LogViewer 挂载时拉取）
  * - POST /skill/alert — 接收粘合层告警并广播到 UI（去重 5 分钟）
  *
+ * 日志缓冲区：logBuffer（最近 500 条），stopSkillServer() 时清空。
  * 所有调用都会路由到 SkillEngineController 提供的回调里执行。
  */
 import * as http from 'http'
@@ -92,6 +94,10 @@ export interface AlertData {
 const alertDedupMap = new Map<string, number>()  // code → lastShownTimestamp
 const ALERT_DEDUP_MS = 5 * 60 * 1000  // 5 分钟
 
+// 日志缓冲区：最近 500 条，供新窗口（设置 → 日志 tab）拉取历史
+const LOG_BUFFER_MAX = 500
+const logBuffer: GlueLayerLog[] = []
+
 export interface SkillEngineControllerWithSend extends SkillEngineController {
   /** 发送消息给指定联系人 */
   sendMessage(contact: string, message: string): Promise<SendMessageResult>
@@ -130,8 +136,8 @@ export interface SettingsStoreAccessor {
 
 let settingsStore: SettingsStoreAccessor | null = null
 
-/** 自动驾驶状态：从 store 初始化，默认禁用 */
-let autopilotEnabled = false
+/** 自动驾驶状态：从 store 初始化，默认启用（用户期望安装后即可自动监控） */
+let autopilotEnabled = true
 
 /** 当前监听端口 */
 let currentPort = FIXED_PORT
@@ -293,6 +299,16 @@ function handleAutopilotGet(res: http.ServerResponse, requestOrigin?: string): v
   }, requestOrigin)
 }
 
+function handleLogsGet(res: http.ServerResponse, requestOrigin?: string): void {
+  // 返回缓冲区副本，避免外部修改
+  const logs = [...logBuffer]
+  jsonResponse(res, 200, {
+    ok: true,
+    logs,
+    count: logs.length
+  }, requestOrigin)
+}
+
 async function handleAutopilotSet(res: http.ServerResponse, body: string, requestOrigin?: string): Promise<void> {
   let request: { enabled: boolean }
   try {
@@ -334,9 +350,15 @@ async function handleLog(res: http.ServerResponse, body: string, requestOrigin?:
     logEntry.timestamp = Date.now()
   }
 
+  // 存入环形缓冲区（最近 500 条）
+  logBuffer.push(logEntry)
+  if (logBuffer.length > LOG_BUFFER_MAX) {
+    logBuffer.shift()
+  }
+
   // 广播日志到所有窗口 - 手动序列化为 JSON 字符串避免 IPC 编码问题
   const logJson = JSON.stringify(logEntry)
-  broadcastToAllWindows('glue-layer:log', logJson)
+  broadcastToAllWindows('wechat-agent:glue-layer-log', logJson)
 
   jsonResponse(res, 200, { ok: true }, requestOrigin)
 }
@@ -507,6 +529,8 @@ async function requestHandler(req: http.IncomingMessage, res: http.ServerRespons
       handleStatus(res, requestOrigin)
     } else if (url === '/skill/autopilot' && method === 'GET') {
       handleAutopilotGet(res, requestOrigin)
+    } else if (url === '/skill/logs' && method === 'GET') {
+      handleLogsGet(res, requestOrigin)
     } else if (url === '/skill/autopilot' && method === 'POST') {
       const body = await readBody(req)
       await handleAutopilotSet(res, body, requestOrigin)
@@ -542,8 +566,8 @@ export function startSkillServer(
   controller = engineController
   settingsStore = store ?? null
 
-  // 从 store 初始化 autopilot 状态
-  autopilotEnabled = settingsStore?.get('autopilot.enabled', false) ?? false
+  // 从 store 初始化 autopilot 状态（默认启用）
+  autopilotEnabled = settingsStore?.get('autopilot.enabled', true) ?? true
 
   server = http.createServer((req, res) => {
     requestHandler(req, res).catch((error) => {
@@ -594,6 +618,7 @@ export function stopSkillServer(): void {
   controller = null
   skillOperationLock = false
   _engineBusy = false
+  logBuffer.length = 0  // 清空日志缓冲区
 }
 
 /**

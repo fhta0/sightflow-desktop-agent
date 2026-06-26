@@ -207,14 +207,28 @@ function ControlPanel() {
     if (listenerAttached.current) return
     listenerAttached.current = true
 
-    const cleanupLog = window.electron?.on('glue-layer:log', (data: string) => {
-      try {
-        const parsed = typeof data === 'string' ? JSON.parse(data) : data
-        const time = new Date().toLocaleTimeString('en-US', { hour12: false })
-        setLogs((prev) => [...prev.slice(-99), { ...parsed, time }])
-      } catch (e) {
-        console.error('Failed to parse log:', e)
+    const cleanupLog = window.electron?.on('wechat-agent:glue-layer-log', (data: unknown) => {
+      const time = new Date().toLocaleTimeString('en-US', { hour12: false })
+      let entry: LogEntry
+      if (typeof data === 'string') {
+        try {
+          const parsed = JSON.parse(data)
+          if (parsed && typeof parsed === 'object' && parsed.type) {
+            entry = { time, type: parsed.type, contact: parsed.contact, content: parsed.content || '' }
+          } else {
+            entry = { time, type: 'info', content: data }
+          }
+        } catch {
+          // 纯文本行（来自 ProcessManager stdout）
+          entry = { time, type: 'info', content: data }
+        }
+      } else if (data && typeof data === 'object') {
+        const obj = data as Record<string, unknown>
+        entry = { time, type: (obj.type as LogEntry['type']) || 'info', contact: obj.contact as string | undefined, content: (obj.content as string) || '' }
+      } else {
+        entry = { time, type: 'info', content: String(data) }
       }
+      setLogs((prev) => [...prev.slice(-99), entry])
     })
 
     // 监听告警事件
@@ -482,7 +496,7 @@ function BottomBar() {
     if (listenerAttached.current) return
     listenerAttached.current = true
 
-    const cleanup = window.electron?.on('glue-layer:log', () => {
+    const cleanup = window.electron?.on('wechat-agent:glue-layer-log', () => {
       setGlueLayerConnected(true)
     })
     return cleanup

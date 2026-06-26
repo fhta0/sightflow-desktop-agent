@@ -32,3 +32,5 @@ screenshot_*.png
 # TypeScript incremental build info
 *.tsbuildinfo
 resources/wechat/*.exe
+resources/glue-layer/*.exe
+resources/wx-cli/*.exe

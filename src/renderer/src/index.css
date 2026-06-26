@@ -1324,6 +1324,34 @@ textarea.form-input {
   font-size: 13px;
 }
 
+.log-viewer-status {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 40px 20px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.log-viewer-error {
+  color: var(--error);
+}
+
+.log-retry-btn {
+  padding: 4px 12px;
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-glass);
+  color: var(--accent);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.log-retry-btn:hover {
+  background: var(--bg-glass-heavy);
+}
+
 .log-viewer-list {
   height: 100%;
   overflow-y: auto;
