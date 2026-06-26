@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Build Rules
+
+**每次编译前必须增加版本号**：修改 `package.json` 中的 `version` 字段（如 1.0.5 → 1.0.6）。这是强制要求，不要忘记。
+
 ## Project Overview
 
 SightFlow Desktop Agent is an AI-powered cross-platform desktop RPA (Robotic Process Automation) client built with Electron. It uses Vision Language Models (VLM) to automate interactions with chat applications like WeChat, DingTalk, Feishu, Slack, and Telegram.
