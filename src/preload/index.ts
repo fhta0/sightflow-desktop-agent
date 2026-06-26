@@ -31,6 +31,7 @@ const electronHandler = {
     checkWeChat: () => ipcRenderer.invoke('wechat-agent:checkWeChat'),
     installWeChat: () => ipcRenderer.invoke('wechat-agent:installWeChat'),
     getBundledWxPath: () => ipcRenderer.invoke('wechat-agent:getBundledWxPath'),
+    initWxCli: () => ipcRenderer.invoke('wechat-agent:initWxCli'),
   }
 }
 

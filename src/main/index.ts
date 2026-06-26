@@ -1,5 +1,7 @@
 import { app, shell, BrowserWindow, ipcMain, desktopCapturer } from 'electron'
 import { join } from 'path'
+import * as path from 'path'
+import * as os from 'os'
 import * as fs from 'fs'
 import { execFile } from 'child_process'
 import { promisify } from 'util'
@@ -43,7 +45,7 @@ import {
   setEngineBusy
 } from './skill-server'
 import { loadConfig, saveConfig, getConfigDir, type WechatAgentConfig } from './wechat-agent-config'
-import { ProcessManager, getGlueLayerPath, getWxCliPath } from './process-manager'
+import { ProcessManager, getGlueLayerPath, getWxCliPath, getElevatePath } from './process-manager'
 import { detectWeChat, installWeChat } from './wechat-installer'
 const execFileAsync = promisify(execFile)
 const StoreClass = typeof Store === 'function' ? Store : ((Store as any).default as typeof Store)
@@ -783,6 +785,11 @@ app.whenReady().then(async () => {
     }
     if (!result.wxExists) return { ok: false, ...result, error: 'wx-cli 不存在' }
 
+    // 检查 wx-cli 是否已初始化（config.json 是否存在）
+    const wxCliConfigPath = path.join(os.homedir(), '.wx-cli', 'config.json')
+    result.wxCliInitialized = fs.existsSync(wxCliConfigPath)
+    result.wxCliConfigPath = wxCliConfigPath
+
     // 测试 wx daemon status（检查 daemon 是否运行）
     try {
       const { stdout } = await execFileAsync(wxPath, ['daemon', 'status', '--json'], { timeout: 5000, encoding: 'utf-8' })
@@ -822,6 +829,38 @@ app.whenReady().then(async () => {
     }
 
     return { ok: true, ...result }
+  })
+
+  // 微信 Agent: 初始化 wx-cli（需要管理员权限）
+  ipcMain.handle('wechat-agent:initWxCli', async () => {
+    const wxPath = getWxCliPath()
+    if (!fs.existsSync(wxPath)) {
+      return { ok: false, error: 'wx-cli 不存在' }
+    }
+
+    // 使用 elevate 提权运行 wx init
+    const elevatePath = getElevatePath()
+    if (!fs.existsSync(elevatePath)) {
+      // 如果没有 elevate，尝试直接运行（可能会失败）
+      try {
+        const { stdout, stderr } = await execFileAsync(wxPath, ['init'], { timeout: 60000, encoding: 'utf-8' })
+        return { ok: true, output: stdout, error: stderr }
+      } catch (e: any) {
+        return { ok: false, error: e.stderr || e.message }
+      }
+    }
+
+    // 使用 elevate 提权运行
+    try {
+      const { stdout, stderr } = await execFileAsync(
+        elevatePath,
+        [wxPath, 'init'],
+        { timeout: 60000, encoding: 'utf-8' }
+      )
+      return { ok: true, output: stdout, error: stderr }
+    } catch (e: any) {
+      return { ok: false, error: e.stderr || e.message }
+    }
   })
 
   // 微信 Agent: 检测微信安装状态

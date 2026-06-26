@@ -162,3 +162,10 @@ export function getWxCliPath(): string {
   }
   return path.join(app.getAppPath(), 'resources', 'wx-cli', 'wx.exe')
 }
+
+export function getElevatePath(): string {
+  if (app.isPackaged) {
+    return path.join(process.resourcesPath, 'elevate.exe')
+  }
+  return path.join(app.getAppPath(), 'resources', 'elevate.exe')
+}

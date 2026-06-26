@@ -181,26 +181,51 @@ export function WechatAgentSettings(): React.JSX.Element {
           {availableGroups.length === 0 ? (
             <div>
               <p className="form-hint">未找到群组</p>
-              <button
-                className="btn btn-secondary"
-                style={{ marginTop: '8px', fontSize: '12px' }}
-                onClick={async () => {
-                  const diag = await window.electron?.invoke('wechat-agent:diagnose')
-                  if (diag) {
-                    const lines = [
-                      `wx-cli 路径: ${diag.wxPath}`,
-                      `wx-cli 存在: ${diag.wxExists ? '✓' : '✗'}`,
-                      `glue-layer 状态: ${diag.glueLayerStatus}`,
-                      `daemon: ${diag.daemonOk ? '✓' : '✗ ' + (diag.daemonError || '')}`,
-                      `whoami: ${diag.whoamiOk ? '✓ wxid=' + diag.whoami?.wxid : '✗ ' + (diag.whoamiError || '')}`,
-                      `sessions: ${diag.sessionsOk ? '✓ (' + diag.sessionCount + ' 个会话)' : '✗ ' + (diag.sessionsError || '')}`,
-                    ]
-                    alert(lines.join('\n'))
-                  }
-                }}
-              >
-                🔍 运行诊断
-              </button>
+              <div style={{ display: 'flex', gap: '8px', marginTop: '8px', flexWrap: 'wrap' }}>
+                <button
+                  className="btn btn-secondary"
+                  style={{ fontSize: '12px' }}
+                  onClick={async () => {
+                    const diag = await window.electron?.invoke('wechat-agent:diagnose')
+                    if (diag) {
+                      const lines = [
+                        `wx-cli 路径: ${diag.wxPath}`,
+                        `wx-cli 存在: ${diag.wxExists ? '✓' : '✗'}`,
+                        `wx-cli 已初始化: ${diag.wxCliInitialized ? '✓' : '✗ 需要运行初始化'}`,
+                        `配置文件: ${diag.wxCliConfigPath}`,
+                        `glue-layer 状态: ${diag.glueLayerStatus}`,
+                        `daemon: ${diag.daemonOk ? '✓' : '✗ ' + (diag.daemonError || '')}`,
+                        `whoami: ${diag.whoamiOk ? '✓ wxid=' + diag.whoami?.wxid : '✗ ' + (diag.whoamiError || '')}`,
+                        `sessions: ${diag.sessionsOk ? '✓ (' + diag.sessionCount + ' 个会话)' : '✗ ' + (diag.sessionsError || '')}`,
+                      ]
+                      alert(lines.join('\n'))
+                    }
+                  }}
+                >
+                  🔍 运行诊断
+                </button>
+                <button
+                  className="btn btn-primary"
+                  style={{ fontSize: '12px' }}
+                  onClick={async () => {
+                    const confirmed = confirm('初始化 wx-cli 需要管理员权限，将弹出 UAC 提权对话框。\n\n初始化过程：\n1. 检测微信数据目录\n2. 扫描加密密钥（需要微信已登录）\n3. 生成配置文件\n\n是否继续？')
+                    if (!confirmed) return
+
+                    alert('正在初始化，请稍候...')
+                    const result = await window.electron?.wechatAgent.initWxCli()
+                    if (result?.ok) {
+                      alert('初始化成功！\n\n' + (result.output || ''))
+                      // 重新加载群组列表
+                      const wxCliPath = config.advanced.wx_cli_path || 'wx'
+                      await loadGroups(wxCliPath)
+                    } else {
+                      alert('初始化失败：' + (result?.error || '未知错误'))
+                    }
+                  }}
+                >
+                  🔧 初始化 wx-cli
+                </button>
+              </div>
             </div>
           ) : (
             <div className="group-list">
