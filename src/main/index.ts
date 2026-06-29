@@ -792,9 +792,9 @@ app.whenReady().then(async () => {
 
     // 测试 wx daemon status（检查 daemon 是否运行）
     try {
-      const { stdout } = await execFileAsync(wxPath, ['daemon', 'status', '--json'], { timeout: 5000, encoding: 'utf-8' })
-      result.daemonStatus = JSON.parse(stdout)
-      result.daemonOk = true
+      const { stdout } = await execFileAsync(wxPath, ['daemon', 'status'], { timeout: 5000, encoding: 'utf-8' })
+      result.daemonStatus = stdout.trim()
+      result.daemonOk = stdout.includes('运行中')
     } catch (e: any) {
       result.daemonOk = false
       result.daemonError = e.stderr || e.message
@@ -838,12 +838,56 @@ app.whenReady().then(async () => {
       return { ok: false, error: 'wx-cli 不存在' }
     }
 
-    // 使用 elevate 提权运行 wx init
+    // 检查并迁移安装目录的配置文件到 ~/.wx-cli/
+    const installDir = path.dirname(wxPath)
+    const installConfigPath = path.join(installDir, 'config.json')
+    const installKeysPath = path.join(installDir, 'all_keys.json')
+    const cliHomeDir = path.join(os.homedir(), '.wx-cli')
+    const userConfigPath = path.join(cliHomeDir, 'config.json')
+    const userKeysPath = path.join(cliHomeDir, 'all_keys.json')
+
+    // 确保 ~/.wx-cli 目录存在
+    if (!fs.existsSync(cliHomeDir)) {
+      fs.mkdirSync(cliHomeDir, { recursive: true })
+    }
+
+    // 迁移安装目录的配置文件到用户目录
+    if (fs.existsSync(installConfigPath) && !fs.existsSync(userConfigPath)) {
+      try {
+        fs.copyFileSync(installConfigPath, userConfigPath)
+        console.log('[initWxCli] 迁移 config.json 到用户目录')
+      } catch (e) {
+        console.error('[initWxCli] 迁移 config.json 失败:', e)
+      }
+    }
+    if (fs.existsSync(installKeysPath) && !fs.existsSync(userKeysPath)) {
+      try {
+        fs.copyFileSync(installKeysPath, userKeysPath)
+        console.log('[initWxCli] 迁移 all_keys.json 到用户目录')
+      } catch (e) {
+        console.error('[initWxCli] 迁移 all_keys.json 失败:', e)
+      }
+    }
+    // 删除安装目录的配置文件（避免 wx-cli 使用便携模式）
+    try {
+      if (fs.existsSync(installConfigPath)) fs.unlinkSync(installConfigPath)
+      if (fs.existsSync(installKeysPath)) fs.unlinkSync(installKeysPath)
+    } catch (e) {
+      console.error('[initWxCli] 删除安装目录配置文件失败:', e)
+    }
+
+    // 使用 elevate 提权运行 wx init，设置 CWD 为用户目录
     const elevatePath = getElevatePath()
+    const initOptions = {
+      timeout: 60000,
+      encoding: 'utf-8' as const,
+      cwd: os.homedir()  // 设置 CWD 为用户目录，避免 wx-cli 在安装目录创建配置
+    }
+
     if (!fs.existsSync(elevatePath)) {
       // 如果没有 elevate，尝试直接运行（可能会失败）
       try {
-        const { stdout, stderr } = await execFileAsync(wxPath, ['init'], { timeout: 60000, encoding: 'utf-8' })
+        const { stdout, stderr } = await execFileAsync(wxPath, ['init'], initOptions)
         return { ok: true, output: stdout, error: stderr }
       } catch (e: any) {
         return { ok: false, error: e.stderr || e.message }
@@ -855,7 +899,7 @@ app.whenReady().then(async () => {
       const { stdout, stderr } = await execFileAsync(
         elevatePath,
         [wxPath, 'init'],
-        { timeout: 60000, encoding: 'utf-8' }
+        initOptions
       )
       return { ok: true, output: stdout, error: stderr }
     } catch (e: any) {
