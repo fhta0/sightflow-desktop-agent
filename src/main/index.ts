@@ -46,7 +46,7 @@ import {
 } from './skill-server'
 import { loadConfig, saveConfig, getConfigDir, type WechatAgentConfig } from './wechat-agent-config'
 import { ProcessManager, getGlueLayerPath, getWxCliPath, getElevatePath } from './process-manager'
-import { detectWeChat, installWeChat } from './wechat-installer'
+import { detectWeChat, getWeChatDownloadUrl } from './wechat-installer'
 const execFileAsync = promisify(execFile)
 const StoreClass = typeof Store === 'function' ? Store : ((Store as any).default as typeof Store)
 
@@ -909,23 +909,18 @@ app.whenReady().then(async () => {
 
   // 微信 Agent: 检测微信安装状态
   ipcMain.handle('wechat-agent:checkWeChat', () => {
-    return detectWeChat()
+    const status = detectWeChat()
+    return {
+      ...status,
+      downloadUrl: getWeChatDownloadUrl()
+    }
   })
 
-  // 微信 Agent: 安装微信
-  ipcMain.handle('wechat-agent:installWeChat', async () => {
-    const installerPath = join(process.resourcesPath, 'wechat', 'WeChatWin_4.1.9.exe')
-    if (!fs.existsSync(installerPath)) {
-      // Dev fallback
-      const devPath = join(app.getAppPath(), 'resources', 'wechat', 'WeChatWin_4.1.9.exe')
-      if (!fs.existsSync(devPath)) {
-        return { ok: false, error: 'installer_not_found' }
-      }
-      const success = await installWeChat(devPath)
-      return { ok: success }
-    }
-    const success = await installWeChat(installerPath)
-    return { ok: success }
+  // 微信 Agent: 打开微信下载页面
+  ipcMain.handle('wechat-agent:openWeChatDownload', async () => {
+    const url = getWeChatDownloadUrl()
+    await shell.openExternal(url)
+    return { ok: true }
   })
 
   // ── Skill HTTP Server（OpenClaw 远程启动 / 暂停接入点） ──

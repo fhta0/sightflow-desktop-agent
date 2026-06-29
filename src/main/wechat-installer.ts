@@ -3,12 +3,28 @@ import * as path from 'path'
 import * as fs from 'fs'
 
 const REQUIRED_WECHAT_VERSION = '4.1.9'
+const WECHAT_DOWNLOAD_URL = 'https://dldir1.qq.com/weixin/Windows/WeChatWin.exe'
 
 export interface WeChatInstallStatus {
   installed: boolean
   version: string | null
   installPath: string | null
   needsInstall: boolean
+  running: boolean
+}
+
+/** 检查微信进程是否在运行 */
+function isWeChatRunning(): boolean {
+  try {
+    const output = execSync('tasklist /FI "IMAGENAME eq WeChat.exe" /NH', {
+      encoding: 'utf-8',
+      windowsHide: true,
+      timeout: 5000
+    })
+    return output.includes('WeChat.exe')
+  } catch {
+    return false
+  }
 }
 
 /** 尝试从注册表查找微信安装路径 */
@@ -33,7 +49,11 @@ function findWeChatFromRegistry(): string | null {
         const match = regOutput.split('\n')
           .find(line => line.includes(valueName))
         if (match) {
-          const installPath = match.split('REG_SZ').pop()?.trim() || null
+          let installPath = match.split('REG_SZ').pop()?.trim() || null
+          // 如果路径以 WeChat.exe 结尾，取目录
+          if (installPath && installPath.toLowerCase().endsWith('wechat.exe')) {
+            installPath = path.dirname(installPath)
+          }
           if (installPath && fs.existsSync(installPath)) {
             return installPath
           }
@@ -100,12 +120,40 @@ function findWeChatInPath(): string | null {
   return null
 }
 
+/** 通过运行中的进程路径查找微信 */
+function findWeChatFromProcess(): string | null {
+  try {
+    const output = execSync(
+      'wmic process where "name=\'WeChat.exe\'" get ExecutablePath /value',
+      { encoding: 'utf-8', windowsHide: true, timeout: 5000 }
+    )
+    const match = output.match(/ExecutablePath=(.+)/)
+    if (match) {
+      const exePath = match[1].trim()
+      if (exePath && fs.existsSync(exePath)) {
+        return path.dirname(exePath)
+      }
+    }
+  } catch {
+    // Failed to get process path
+  }
+  return null
+}
+
 /** 检测微信安装状态和版本 */
 export function detectWeChat(): WeChatInstallStatus {
   let installPath: string | null = null
+  const running = isWeChatRunning()
+
+  // 如果微信正在运行，尝试从进程获取路径
+  if (running) {
+    installPath = findWeChatFromProcess()
+  }
 
   // 1. 尝试从注册表获取安装路径（多个位置）
-  installPath = findWeChatFromRegistry()
+  if (!installPath) {
+    installPath = findWeChatFromRegistry()
+  }
 
   // 2. 尝试默认路径
   if (!installPath) {
@@ -118,7 +166,7 @@ export function detectWeChat(): WeChatInstallStatus {
   }
 
   if (!installPath) {
-    return { installed: false, version: null, installPath: null, needsInstall: true }
+    return { installed: false, version: null, installPath: null, needsInstall: true, running }
   }
 
   // 4. 获取版本
@@ -148,21 +196,10 @@ export function detectWeChat(): WeChatInstallStatus {
   }
 
   const needsInstall = !version || !version.startsWith(REQUIRED_WECHAT_VERSION)
-  return { installed: true, version, installPath, needsInstall }
+  return { installed: true, version, installPath, needsInstall, running }
 }
 
-/** 静默安装微信 */
-export function installWeChat(installerPath: string): Promise<boolean> {
-  return new Promise((resolve) => {
-    try {
-      execSync(`"${installerPath}" /S`, {
-        timeout: 120_000,
-        windowsHide: false,
-      })
-      resolve(true)
-    } catch (e) {
-      console.error('[WeChatInstaller] Installation failed:', e)
-      resolve(false)
-    }
-  })
+/** 获取微信下载地址 */
+export function getWeChatDownloadUrl(): string {
+  return WECHAT_DOWNLOAD_URL
 }

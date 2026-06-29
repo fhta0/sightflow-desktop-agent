@@ -29,7 +29,7 @@ const electronHandler = {
     getGlueLayerStatus: () => ipcRenderer.invoke('wechat-agent:getGlueLayerStatus'),
     restartGlueLayer: () => ipcRenderer.invoke('wechat-agent:restartGlueLayer'),
     checkWeChat: () => ipcRenderer.invoke('wechat-agent:checkWeChat'),
-    installWeChat: () => ipcRenderer.invoke('wechat-agent:installWeChat'),
+    openWeChatDownload: () => ipcRenderer.invoke('wechat-agent:openWeChatDownload'),
     getBundledWxPath: () => ipcRenderer.invoke('wechat-agent:getBundledWxPath'),
     initWxCli: () => ipcRenderer.invoke('wechat-agent:initWxCli'),
   }

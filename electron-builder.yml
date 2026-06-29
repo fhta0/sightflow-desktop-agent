@@ -22,9 +22,6 @@ extraResources:
   - from: "resources/glue-layer/"
     to: "glue-layer/"
     filter: ["**/*.exe"]
-  - from: "resources/wechat/"
-    to: "wechat/"
-    filter: ["**/*.exe"]
 win:
   executableName: 微信-Driverless
 nsis:
