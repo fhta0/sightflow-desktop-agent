@@ -12,6 +12,7 @@ interface WeChatInstallStatus {
   needsInstall: boolean
   running: boolean
   downloadUrl: string
+  isXWeChat: boolean
 }
 
 type WizardStep = 'welcome' | 'wechat' | 'identity' | 'init' | 'done'
@@ -40,7 +41,8 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps): React.J
         installPath: null,
         needsInstall: true,
         running: false,
-        downloadUrl: ''
+        downloadUrl: '',
+        isXWeChat: false
       })
     } catch {
       setWechatStatus({
@@ -49,7 +51,8 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps): React.J
         installPath: null,
         needsInstall: true,
         running: false,
-        downloadUrl: ''
+        downloadUrl: '',
+        isXWeChat: false
       })
     }
     setChecking(false)
@@ -172,7 +175,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps): React.J
               <div className="onboarding-result success">
                 <span className="onboarding-check">✓</span>
                 <div>
-                  <p>微信已安装</p>
+                  <p>{wechatStatus.isXWeChat ? '微信 4.x 已安装' : '微信已安装'}</p>
                   {wechatStatus.version && (
                     <p className="onboarding-detail">版本: {wechatStatus.version}</p>
                   )}

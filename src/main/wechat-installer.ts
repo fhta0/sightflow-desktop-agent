@@ -11,36 +11,67 @@ export interface WeChatInstallStatus {
   needsInstall: boolean
   running: boolean
   downloadUrl: string
+  isXWeChat: boolean  // 标记是否是新版微信 4.x（xwechat）
 }
 
-/** 检查微信进程是否在运行 */
-function isWeChatRunning(): boolean {
+/** 检查微信进程是否在运行（支持旧版和新版） */
+function isWeChatRunning(): { running: boolean; processName: string; exePath: string | null } {
+  // 检查旧版 WeChat.exe
   try {
     const output = execSync('tasklist /FI "IMAGENAME eq WeChat.exe" /NH', {
       encoding: 'utf-8',
       windowsHide: true,
       timeout: 5000
     })
-    return output.includes('WeChat.exe')
-  } catch {
-    return false
-  }
+    if (output.includes('WeChat.exe')) {
+      const exePath = findExeFromProcess('WeChat.exe')
+      return { running: true, processName: 'WeChat.exe', exePath }
+    }
+  } catch { /* ignore */ }
+
+  // 检查新版 WeChatAppEx.exe（xwechat 4.x）
+  try {
+    const output = execSync('tasklist /FI "IMAGENAME eq WeChatAppEx.exe" /NH', {
+      encoding: 'utf-8',
+      windowsHide: true,
+      timeout: 5000
+    })
+    if (output.includes('WeChatAppEx.exe')) {
+      const exePath = findExeFromProcess('WeChatAppEx.exe')
+      return { running: true, processName: 'WeChatAppEx.exe', exePath }
+    }
+  } catch { /* ignore */ }
+
+  return { running: false, processName: '', exePath: null }
 }
 
-/** 尝试从注册表查找微信安装路径 */
+/** 从进程获取 exe 路径 */
+function findExeFromProcess(processName: string): string | null {
+  try {
+    const output = execSync(
+      `wmic process where "name='${processName}'" get ExecutablePath /value`,
+      { encoding: 'utf-8', windowsHide: true, timeout: 5000 }
+    )
+    const match = output.match(/ExecutablePath=(.+)/)
+    if (match) {
+      const exePath = match[1].trim()
+      if (exePath && fs.existsSync(exePath)) {
+        return exePath
+      }
+    }
+  } catch { /* ignore */ }
+  return null
+}
+
+/** 尝试从注册表查找微信安装路径（旧版微信） */
 function findWeChatFromRegistry(): string | null {
-  // 按优先级检查多个注册表位置
   const registryKeys = [
-    // HKCU（用户级安装）
     'HKCU\\Software\\Tencent\\WeChat',
-    // HKLM 32-bit（系统级安装，32位系统或 WoW64）
     'HKLM\\SOFTWARE\\WOW6432Node\\Tencent\\WeChat',
-    // HKLM 64-bit
     'HKLM\\SOFTWARE\\Tencent\\WeChat',
   ]
 
   for (const key of registryKeys) {
-    // 尝试多个可能的值名称
     const valueNames = ['InstallPath', 'Path', 'InstallDir', 'exe_path']
     for (const valueName of valueNames) {
       try {
@@ -53,17 +84,13 @@ function findWeChatFromRegistry(): string | null {
         if (match) {
           let installPath = match.split('REG_SZ').pop()?.trim() || null
           if (installPath) {
-            // 如果路径以 WeChat.exe 结尾，取目录
             if (installPath.toLowerCase().endsWith('wechat.exe')) {
               installPath = path.dirname(installPath)
             }
-            // 检查路径是否存在
             if (fs.existsSync(installPath)) {
-              // 检查目录下是否有 WeChat.exe
               if (fs.existsSync(path.join(installPath, 'WeChat.exe'))) {
                 return installPath
               }
-              // 如果是安装根目录，WeChat.exe 可能在子目录
               const wechatSubdir = path.join(installPath, 'WeChat')
               if (fs.existsSync(path.join(wechatSubdir, 'WeChat.exe'))) {
                 return wechatSubdir
@@ -71,40 +98,130 @@ function findWeChatFromRegistry(): string | null {
             }
           }
         }
-      } catch {
-        // 这个注册表位置/值名不存在，继续尝试
-      }
-    }
-    // 也尝试查询默认值
-    try {
-      const regOutput = execSync(
-        `reg query "${key}" /ve`,
-        { encoding: 'utf-8', windowsHide: true, timeout: 5000 }
-      )
-      const match = regOutput.split('\n')
-        .find(line => line.includes('REG_SZ'))
-      if (match) {
-        let installPath = match.split('REG_SZ').pop()?.trim() || null
-        if (installPath && fs.existsSync(installPath)) {
-          if (fs.existsSync(path.join(installPath, 'WeChat.exe'))) {
-            return installPath
-          }
-        }
-      }
-    } catch {
-      // 默认值不存在
+      } catch { /* ignore */ }
     }
   }
 
   return null
 }
 
-/** 在默认路径中查找微信 */
-function findWeChatInDefaultPaths(): string | null {
+/** 从 Uninstall 注册表查找微信 */
+function findWeChatFromUninstallRegistry(): string | null {
+  const uninstallKeys = [
+    'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall',
+    'HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall',
+    'HKLM\\SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall',
+  ]
+
+  for (const baseKey of uninstallKeys) {
+    try {
+      // 列出所有子键
+      const output = execSync(`reg query "${baseKey}" /s /f "微信"`, {
+        encoding: 'utf-8',
+        windowsHide: true,
+        timeout: 10000
+      })
+
+      // 查找 InstallLocation 或 UninstallString
+      const lines = output.split('\n')
+      let installLocation: string | null = null
+      let uninstallString: string | null = null
+
+      for (const line of lines) {
+        if (line.includes('InstallLocation') && line.includes('REG_SZ')) {
+          installLocation = line.split('REG_SZ').pop()?.trim() || null
+        }
+        if (line.includes('UninstallString') && line.includes('REG_SZ')) {
+          uninstallString = line.split('REG_SZ').pop()?.trim() || null
+        }
+      }
+
+      if (installLocation && fs.existsSync(installLocation)) {
+        return installLocation
+      }
+      if (uninstallString) {
+        // 从卸载字符串提取路径
+        const match = uninstallString.match(/"([^"]+)"/) || uninstallString.match(/^(\S+)/)
+        if (match) {
+          const exePath = match[1]
+          const dir = path.dirname(exePath)
+          if (fs.existsSync(dir)) {
+            return dir
+          }
+        }
+      }
+    } catch { /* ignore */ }
+
+    // 也搜索 wechat / xwechat
+    try {
+      const output = execSync(`reg query "${baseKey}" /s /f "wechat"`, {
+        encoding: 'utf-8',
+        windowsHide: true,
+        timeout: 10000
+      })
+
+      const lines = output.split('\n')
+      for (const line of lines) {
+        if (line.includes('InstallLocation') && line.includes('REG_SZ')) {
+          const installPath = line.split('REG_SZ').pop()?.trim() || null
+          if (installPath && fs.existsSync(installPath)) {
+            return installPath
+          }
+        }
+      }
+    } catch { /* ignore */ }
+  }
+
+  return null
+}
+
+/** 查找新版微信（xwechat 4.x）安装路径 */
+function findXWeChatPath(): string | null {
+  // 用户配置文件夹（通常在 C 盘）
+  const userDirs = [
+    process.env['APPDATA'] || '',
+    process.env['LOCALAPPDATA'] || '',
+    process.env['USERPROFILE'] || '',
+  ].filter(Boolean)
+
+  // 也搜索所有盘符
+  const drives = ['C:', 'D:', 'E:', 'F:', 'G:']
+  const allDirs: string[] = [...userDirs]
+
+  for (const drive of drives) {
+    // 常见的微信数据目录位置
+    allDirs.push(path.join(drive, 'WeChat Files'))
+    allDirs.push(path.join(drive, 'xwechat_files'))
+    allDirs.push(path.join(drive, 'Program Files', 'Tencent', 'xwechat'))
+    allDirs.push(path.join(drive, 'Program Files (x86)', 'Tencent', 'xwechat'))
+    // 用户数据可能在这些位置
+    allDirs.push(path.join(drive, 'Users', process.env['USERNAME'] || '', 'Documents', 'xwechat_files'))
+    allDirs.push(path.join(drive, 'Users', process.env['USERNAME'] || '', 'AppData', 'Roaming', 'Tencent', 'xwechat'))
+    allDirs.push(path.join(drive, 'Users', process.env['USERNAME'] || '', 'AppData', 'Local', 'Tencent', 'xwechat'))
+  }
+
+  for (const dir of allDirs) {
+    if (dir && fs.existsSync(dir)) {
+      // 检查是否是 xwechat 目录（包含特征文件/目录）
+      const xwechatMarkers = ['xplugin', 'xwechat_files', 'WeChatAppEx.exe', 'config.json']
+      for (const marker of xwechatMarkers) {
+        if (fs.existsSync(path.join(dir, marker))) {
+          return dir
+        }
+      }
+    }
+  }
+
+  return null
+}
+
+/** 在默认路径中查找微信（支持旧版和新版） */
+function findWeChatInDefaultPaths(): { path: string; isXWeChat: boolean } | null {
   const programFilesDirs = [
     process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)',
     process.env['ProgramFiles'] || 'C:\\Program Files',
     process.env['LOCALAPPDATA'] ? path.join(process.env['LOCALAPPDATA'], 'Programs') : null,
+    process.env['APPDATA'] || '',
     process.env['LOCALAPPDATA'] || '',
   ].filter(Boolean) as string[]
 
@@ -118,60 +235,33 @@ function findWeChatInDefaultPaths(): string | null {
   }
 
   for (const dir of programFilesDirs) {
-    const candidates = [
+    // 旧版微信路径
+    const oldCandidates = [
       path.join(dir, 'Tencent', 'WeChat'),
       path.join(dir, 'WeChat'),
       path.join(dir, 'Tencent'),
       path.join(dir, 'WeChat', 'Application'),
       path.join(dir, 'Tencent', 'WeChat', 'Application'),
     ]
-    for (const candidate of candidates) {
+    for (const candidate of oldCandidates) {
       if (fs.existsSync(path.join(candidate, 'WeChat.exe'))) {
-        return candidate
+        return { path: candidate, isXWeChat: false }
+      }
+    }
+
+    // 新版微信（xwechat）路径
+    const xwechatCandidates = [
+      path.join(dir, 'Tencent', 'xwechat'),
+      path.join(dir, 'xwechat'),
+      path.join(dir, 'Tencent', 'WeChatX'),
+    ]
+    for (const candidate of xwechatCandidates) {
+      if (fs.existsSync(candidate)) {
+        return { path: candidate, isXWeChat: true }
       }
     }
   }
 
-  return null
-}
-
-/** 使用 where 命令查找 WeChat.exe（PATH 中的情况） */
-function findWeChatInPath(): string | null {
-  try {
-    const whereOutput = execSync('where WeChat.exe', {
-      encoding: 'utf-8',
-      windowsHide: true,
-      timeout: 5000
-    }).trim()
-    if (whereOutput) {
-      const exePath = whereOutput.split('\n')[0].trim()
-      if (exePath && fs.existsSync(exePath)) {
-        return path.dirname(exePath)
-      }
-    }
-  } catch {
-    // WeChat.exe not in PATH
-  }
-  return null
-}
-
-/** 通过运行中的进程路径查找微信 */
-function findWeChatFromProcess(): string | null {
-  try {
-    const output = execSync(
-      'wmic process where "name=\'WeChat.exe\'" get ExecutablePath /value',
-      { encoding: 'utf-8', windowsHide: true, timeout: 5000 }
-    )
-    const match = output.match(/ExecutablePath=(.+)/)
-    if (match) {
-      const exePath = match[1].trim()
-      if (exePath && fs.existsSync(exePath)) {
-        return path.dirname(exePath)
-      }
-    }
-  } catch {
-    // Failed to get process path
-  }
   return null
 }
 
@@ -179,31 +269,31 @@ function findWeChatFromProcess(): string | null {
 function findWeChatFromShortcuts(): string | null {
   const shortcutLocations = [
     path.join(process.env['APPDATA'] || '', 'Microsoft', 'Windows', 'Start Menu', 'Programs'),
+    path.join(process.env['ProgramData'] || 'C:\\ProgramData', 'Microsoft', 'Windows', 'Start Menu'),
     path.join(process.env['PUBLIC'] || 'C:\\Users\\Public', 'Desktop'),
     path.join(process.env['USERPROFILE'] || '', 'Desktop'),
   ]
 
   for (const location of shortcutLocations) {
-    try {
-      // 使用 PowerShell 查找快捷方式
-      const output = execSync(
-        `powershell -Command "Get-ChildItem -Path '${location}' -Recurse -Filter '*WeChat*.lnk' -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName"`,
-        { encoding: 'utf-8', windowsHide: true, timeout: 10000 }
-      ).trim()
-
-      if (output) {
-        // 解析快捷方式目标
-        const targetOutput = execSync(
-          `powershell -Command "(New-Object -ComObject WScript.Shell).CreateShortcut('${output}').TargetPath"`,
-          { encoding: 'utf-8', windowsHide: true, timeout: 5000 }
+    // 搜索中文和英文快捷方式
+    for (const filter of ['*微信*', '*WeChat*', '*wechat*']) {
+      try {
+        const output = execSync(
+          `powershell -Command "Get-ChildItem -Path '${location}' -Recurse -Filter '${filter}' -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName"`,
+          { encoding: 'utf-8', windowsHide: true, timeout: 10000 }
         ).trim()
 
-        if (targetOutput && fs.existsSync(targetOutput)) {
-          return path.dirname(targetOutput)
+        if (output && output.endsWith('.lnk')) {
+          const targetOutput = execSync(
+            `powershell -Command "(New-Object -ComObject WScript.Shell).CreateShortcut('${output}').TargetPath"`,
+            { encoding: 'utf-8', windowsHide: true, timeout: 5000 }
+          ).trim()
+
+          if (targetOutput && fs.existsSync(targetOutput)) {
+            return path.dirname(targetOutput)
+          }
         }
-      }
-    } catch {
-      // 快捷方式查找失败
+      } catch { /* ignore */ }
     }
   }
 
@@ -218,9 +308,7 @@ function getFileVersion(exePath: string): string | null {
       { encoding: 'utf-8', windowsHide: true, timeout: 10000 }
     ).trim()
     if (version) return version
-  } catch {
-    // PowerShell 方式失败，尝试 wmic
-  }
+  } catch { /* ignore */ }
 
   try {
     const output = execSync(
@@ -231,8 +319,56 @@ function getFileVersion(exePath: string): string | null {
     if (match) {
       return match[1].trim()
     }
-  } catch {
-    // wmic 方式失败
+  } catch { /* ignore */ }
+
+  return null
+}
+
+/** 全盘搜索微信（作为最后手段，使用 where /r 命令） */
+function findWeChatByDiskSearch(): { path: string; isXWeChat: boolean } | null {
+  const drives = ['C:', 'D:', 'E:', 'F:']
+
+  for (const drive of drives) {
+    // 搜索旧版 WeChat.exe
+    try {
+      const output = execSync(`where /r ${drive}\\ WeChat.exe 2>nul`, {
+        encoding: 'utf-8',
+        windowsHide: true,
+        timeout: 30000
+      }).trim()
+      if (output) {
+        const exePath = output.split('\n')[0].trim()
+        if (exePath && fs.existsSync(exePath)) {
+          return { path: path.dirname(exePath), isXWeChat: false }
+        }
+      }
+    } catch { /* ignore */ }
+
+    // 搜索新版 WeChatAppEx.exe
+    try {
+      const output = execSync(`where /r ${drive}\\ WeChatAppEx.exe 2>nul`, {
+        encoding: 'utf-8',
+        windowsHide: true,
+        timeout: 30000
+      }).trim()
+      if (output) {
+        const exePath = output.split('\n')[0].trim()
+        if (exePath && fs.existsSync(exePath)) {
+          // 找到 xwechat 的安装目录（向上查找 Tencent 目录）
+          let dir = path.dirname(exePath)
+          for (let i = 0; i < 10; i++) {
+            const parent = path.dirname(dir)
+            if (parent === dir) break
+            const baseName = path.basename(parent).toLowerCase()
+            if (baseName === 'xwechat' || baseName === 'tencent') {
+              return { path: parent, isXWeChat: true }
+            }
+            dir = parent
+          }
+          return { path: path.dirname(exePath), isXWeChat: true }
+        }
+      }
+    } catch { /* ignore */ }
   }
 
   return null
@@ -241,31 +377,80 @@ function getFileVersion(exePath: string): string | null {
 /** 检测微信安装状态和版本 */
 export function detectWeChat(): WeChatInstallStatus {
   let installPath: string | null = null
-  const running = isWeChatRunning()
+  let isXWeChat = false
+
+  const processInfo = isWeChatRunning()
 
   // 如果微信正在运行，优先从进程获取路径
-  if (running) {
-    installPath = findWeChatFromProcess()
+  if (processInfo.running && processInfo.exePath) {
+    const exeDir = path.dirname(processInfo.exePath)
+    installPath = exeDir
+    isXWeChat = processInfo.processName === 'WeChatAppEx.exe'
+
+    // 对于 xwechat，尝试找到更上层的安装目录
+    if (isXWeChat) {
+      // 从 plugins/RadiumWMPF/.../runtime 往上找 Tencent/xwechat
+      let dir = exeDir
+      for (let i = 0; i < 10; i++) {
+        const parent = path.dirname(dir)
+        if (parent === dir) break
+        if (path.basename(parent).toLowerCase() === 'xwechat' ||
+            path.basename(parent).toLowerCase() === 'tencent') {
+          installPath = parent
+          break
+        }
+        dir = parent
+      }
+    }
   }
 
-  // 1. 尝试从注册表获取安装路径
+  // 1. 旧版微信：注册表查找
   if (!installPath) {
-    installPath = findWeChatFromRegistry()
+    const regPath = findWeChatFromRegistry()
+    if (regPath) {
+      installPath = regPath
+      isXWeChat = false
+    }
   }
 
-  // 2. 尝试默认路径
+  // 2. Uninstall 注册表查找（兼容所有版本）
   if (!installPath) {
-    installPath = findWeChatInDefaultPaths()
+    const uninstallPath = findWeChatFromUninstallRegistry()
+    if (uninstallPath) {
+      installPath = uninstallPath
+    }
   }
 
-  // 3. 尝试 PATH 中查找
+  // 3. 默认路径查找（支持新旧版本）
   if (!installPath) {
-    installPath = findWeChatInPath()
+    const defaultResult = findWeChatInDefaultPaths()
+    if (defaultResult) {
+      installPath = defaultResult.path
+      isXWeChat = defaultResult.isXWeChat
+    }
   }
 
-  // 4. 尝试快捷方式查找
+  // 4. 快捷方式查找
   if (!installPath) {
     installPath = findWeChatFromShortcuts()
+  }
+
+  // 5. xwechat 数据目录查找
+  if (!installPath) {
+    const xwechatPath = findXWeChatPath()
+    if (xwechatPath) {
+      installPath = xwechatPath
+      isXWeChat = true
+    }
+  }
+
+  // 6. 全盘搜索（最后手段，可能较慢）
+  if (!installPath) {
+    const diskResult = findWeChatByDiskSearch()
+    if (diskResult) {
+      installPath = diskResult.path
+      isXWeChat = diskResult.isXWeChat
+    }
   }
 
   if (!installPath) {
@@ -274,25 +459,48 @@ export function detectWeChat(): WeChatInstallStatus {
       version: null,
       installPath: null,
       needsInstall: true,
-      running,
-      downloadUrl: ''
+      running: processInfo.running,
+      downloadUrl: '',
+      isXWeChat: false
     }
   }
 
   // 获取版本
-  const exePath = path.join(installPath, 'WeChat.exe')
   let version: string | null = null
-  if (fs.existsSync(exePath)) {
-    version = getFileVersion(exePath)
+  if (isXWeChat) {
+    // 新版微信：检查 xwechat 目录下的版本信息
+    // 尝试找 WeChatAppEx.exe
+    const candidates = [
+      path.join(installPath, 'WeChatAppEx.exe'),
+      path.join(installPath, 'runtime', 'WeChatAppEx.exe'),
+      path.join(installPath, 'WeChat.exe'),
+    ]
+    for (const exePath of candidates) {
+      if (fs.existsSync(exePath)) {
+        version = getFileVersion(exePath)
+        if (version) break
+      }
+    }
+  } else {
+    // 旧版微信
+    const exePath = path.join(installPath, 'WeChat.exe')
+    if (fs.existsSync(exePath)) {
+      version = getFileVersion(exePath)
+    }
   }
 
-  const needsInstall = !version || !version.startsWith(REQUIRED_WECHAT_VERSION)
+  // 对于新版微信，如果版本检测不到但进程在运行，认为已安装
+  const needsInstall = isXWeChat
+    ? false  // xwechat 不需要特定版本检查
+    : (!version || !version.startsWith(REQUIRED_WECHAT_VERSION))
+
   return {
     installed: true,
     version,
     installPath,
     needsInstall,
-    running,
-    downloadUrl: ''
+    running: processInfo.running,
+    downloadUrl: '',
+    isXWeChat
   }
 }

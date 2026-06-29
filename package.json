@@ -1,6 +1,6 @@
 {
   "name": "sightflow-desktop-agent",
-  "version": "1.0.17",
+  "version": "1.0.19",
   "description": "SightFlow Desktop Agent - AI-powered cross-platform desktop RPA client based on Electron and VLM",
   "main": "./out/main/index.js",
   "author": "sightflow-dev",
