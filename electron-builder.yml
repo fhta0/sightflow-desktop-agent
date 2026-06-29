@@ -9,6 +9,10 @@ files:
   - '!{.eslintcache,eslint.config.mjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
   - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
   - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
+  # 排除大型资源目录（由 extraResources 单独处理，避免重复打包）
+  - '!resources/wx-cli/**'
+  - '!resources/glue-layer/**'
+  - '!resources/wechat/**'
 asarUnpack:
   - resources/**
 extraResources:
