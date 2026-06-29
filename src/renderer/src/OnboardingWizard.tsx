@@ -27,6 +27,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps): React.J
   const [saving, setSaving] = useState(false)
   const [initializing, setInitializing] = useState(false)
   const [initResult, setInitResult] = useState<{ ok: boolean; message?: string } | null>(null)
+  const [initDone, setInitDone] = useState(false)
 
   // Step 2: 检测微信
   const checkWeChat = useCallback(async () => {
@@ -39,7 +40,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps): React.J
         installPath: null,
         needsInstall: true,
         running: false,
-        downloadUrl: 'https://dldir1.qq.com/weixin/Windows/WeChatWin.exe'
+        downloadUrl: ''
       })
     } catch {
       setWechatStatus({
@@ -48,14 +49,10 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps): React.J
         installPath: null,
         needsInstall: true,
         running: false,
-        downloadUrl: 'https://dldir1.qq.com/weixin/Windows/WeChatWin.exe'
+        downloadUrl: ''
       })
     }
     setChecking(false)
-  }, [])
-
-  const handleOpenDownload = useCallback(async () => {
-    await window.electron?.wechatAgent?.openWeChatDownload()
   }, [])
 
   // Step 3: 检测 wxid
@@ -115,6 +112,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps): React.J
       const result = await window.electron?.wechatAgent?.initWxCli()
       if (result?.ok) {
         setInitResult({ ok: true, message: '初始化成功！' })
+        setInitDone(true)
       } else {
         setInitResult({ ok: false, message: result?.error || '初始化失败' })
       }
@@ -170,7 +168,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps): React.J
             <h2>检测微信</h2>
             {checking ? (
               <p className="onboarding-desc">正在检测...</p>
-            ) : wechatStatus?.installed ? (
+            ) : wechatStatus?.installed && !wechatStatus?.needsInstall ? (
               <div className="onboarding-result success">
                 <span className="onboarding-check">✓</span>
                 <div>
@@ -181,25 +179,26 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps): React.J
                   {wechatStatus.running && (
                     <p className="onboarding-detail">状态: 运行中</p>
                   )}
-                  {wechatStatus.needsInstall && (
-                    <p className="onboarding-detail warning">
-                      ⚠️ 需要 4.1.9 版本，当前版本可能不兼容
-                    </p>
+                </div>
+              </div>
+            ) : wechatStatus?.installed && wechatStatus?.needsInstall ? (
+              <div className="onboarding-result warning">
+                <span className="onboarding-check">⚠</span>
+                <div>
+                  <p>微信已安装，但版本不匹配</p>
+                  {wechatStatus.version && (
+                    <p className="onboarding-detail">当前版本: {wechatStatus.version}</p>
                   )}
+                  <p className="onboarding-detail">需要版本: 4.1.9</p>
                 </div>
               </div>
             ) : (
-              <div className="onboarding-result">
-                <p className="onboarding-desc">未检测到微信，请先安装微信 4.1.9。</p>
-                <button
-                  className="btn btn-secondary"
-                  onClick={handleOpenDownload}
-                >
-                  📥 下载微信
-                </button>
-                <p className="onboarding-hint">
-                  下载完成后请安装微信，然后点击"下一步"继续。
-                </p>
+              <div className="onboarding-result error">
+                <span className="onboarding-check">✗</span>
+                <div>
+                  <p>未检测到微信 4.1.9</p>
+                  <p className="onboarding-detail">请先安装微信 4.1.9 版本后再继续</p>
+                </div>
               </div>
             )}
             <div className="onboarding-actions">
@@ -213,7 +212,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps): React.J
                 <button
                   className="btn btn-primary"
                   onClick={() => setStep('identity')}
-                  disabled={checking}
+                  disabled={checking || !wechatStatus?.installed || wechatStatus?.needsInstall}
                 >
                   下一步
                 </button>
@@ -299,24 +298,30 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps): React.J
               </div>
             )}
 
-            <button
-              className="btn btn-primary"
-              onClick={handleInitWxCli}
-              disabled={initializing}
-            >
-              {initializing ? '初始化中...' : '开始初始化'}
-            </button>
-
-            <div className="onboarding-actions">
-              <button className="btn btn-secondary" onClick={() => setStep('identity')}>
-                上一步
-              </button>
+            {!initDone && (
               <button
                 className="btn btn-primary"
-                onClick={() => setStep('done')}
+                onClick={handleInitWxCli}
+                disabled={initializing}
               >
-                跳过（稍后在设置中初始化）
+                {initializing ? '初始化中...' : '开始初始化'}
               </button>
+            )}
+
+            <div className="onboarding-actions">
+              {!initDone && (
+                <button className="btn btn-secondary" onClick={() => setStep('identity')}>
+                  上一步
+                </button>
+              )}
+              {initDone && (
+                <button
+                  className="btn btn-primary"
+                  onClick={() => setStep('done')}
+                >
+                  完成
+                </button>
+              )}
             </div>
           </div>
         )
@@ -327,9 +332,6 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps): React.J
             <div className="onboarding-icon">🎉</div>
             <h2>设置完成！</h2>
             <p className="onboarding-desc">一切就绪，可以开始使用了。</p>
-            <p className="onboarding-hint">
-              如果还没有初始化微信接口，请在设置中完成。
-            </p>
             <button className="btn btn-primary onboarding-next" onClick={onComplete}>
               开始使用
             </button>

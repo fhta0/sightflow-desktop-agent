@@ -46,7 +46,7 @@ import {
 } from './skill-server'
 import { loadConfig, saveConfig, getConfigDir, type WechatAgentConfig } from './wechat-agent-config'
 import { ProcessManager, getGlueLayerPath, getWxCliPath, getElevatePath } from './process-manager'
-import { detectWeChat, getWeChatDownloadUrl } from './wechat-installer'
+import { detectWeChat } from './wechat-installer'
 const execFileAsync = promisify(execFile)
 const StoreClass = typeof Store === 'function' ? Store : ((Store as any).default as typeof Store)
 
@@ -909,18 +909,7 @@ app.whenReady().then(async () => {
 
   // 微信 Agent: 检测微信安装状态
   ipcMain.handle('wechat-agent:checkWeChat', () => {
-    const status = detectWeChat()
-    return {
-      ...status,
-      downloadUrl: getWeChatDownloadUrl()
-    }
-  })
-
-  // 微信 Agent: 打开微信下载页面
-  ipcMain.handle('wechat-agent:openWeChatDownload', async () => {
-    const url = getWeChatDownloadUrl()
-    await shell.openExternal(url)
-    return { ok: true }
+    return detectWeChat()
   })
 
   // ── Skill HTTP Server（OpenClaw 远程启动 / 暂停接入点） ──
