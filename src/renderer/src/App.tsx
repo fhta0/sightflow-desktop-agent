@@ -763,6 +763,15 @@ function AgentPanel(): React.JSX.Element {
         return false
       }
 
+      // API Key 格式校验（覆盖 doubao 和其他 provider 两种路径）
+      const apiKeyCandidate: unknown =
+        provider.id === 'doubao' ? values.apiKey : values.apiKey ?? values.api_key
+      const keyErr = validateApiKeyForSave(apiKeyCandidate)
+      if (keyErr) {
+        showToast(keyErr, 'error')
+        return false
+      }
+
       if (provider.id === 'doubao') {
         const { apiKey, ...providerConfig } = values
         await window.electron?.invoke('settings:set', {
@@ -1012,6 +1021,31 @@ function getMissingRequiredFields(
   return provider.configSchema.fields
     .filter((field) => field.required && !values[field.key]?.trim())
     .map((field) => field.label)
+}
+
+/**
+ * 校验 API Key 格式。返回 null 表示通过，否则返回用户可读的错误文案。
+ *
+ * 规则（与 main 进程的 sanitizeApiKey 保持一致）：
+ * - 空串 / undefined → 视为未配置（在 getMissingRequiredFields 里会另行拦截）
+ * - 非空时必须全是 ASCII，且长度 >= 8
+ *
+ * 历史踩坑：有客户把联系人名（"付海涛"）误填为 API Key，导致 LLM 调用
+ * 直接抛 ByteString 异常。这里在保存前拦截。
+ */
+function validateApiKeyForSave(apiKey: unknown): string | null {
+  if (typeof apiKey !== 'string') return null
+  const trimmed = apiKey.trim()
+  if (trimmed.length === 0) return null
+  if (trimmed.length < 8) {
+    return 'API Key 格式不正确（长度过短）'
+  }
+  for (let i = 0; i < trimmed.length; i++) {
+    if (trimmed.charCodeAt(i) > 127) {
+      return 'API Key 必须为英文字母/数字，不能包含中文或其他语言字符'
+    }
+  }
+  return null
 }
 
 let _showToast: ((msg: string, type: 'success' | 'error') => void) | null = null

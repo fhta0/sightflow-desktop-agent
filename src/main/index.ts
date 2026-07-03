@@ -144,6 +144,42 @@ const settingsStore = new StoreClass({
 
 let glueLayerManager: ProcessManager | null = null
 
+/** 确保 wx-cli 配置存在，如果不存在则运行 wx init */
+async function ensureWxCliConfig(): Promise<void> {
+  const wxCliPath = getWxCliPath()
+  const cliHomeDir = path.join(os.homedir(), '.wx-cli')
+  const userConfigPath = path.join(cliHomeDir, 'config.json')
+
+  // 如果配置已存在，无需初始化
+  if (fs.existsSync(userConfigPath)) {
+    console.log('[Main] wx-cli config exists at:', userConfigPath)
+    return
+  }
+
+  console.log('[Main] wx-cli config not found, running wx init...')
+
+  // 确保 ~/.wx-cli 目录存在
+  if (!fs.existsSync(cliHomeDir)) {
+    fs.mkdirSync(cliHomeDir, { recursive: true })
+  }
+
+  // 运行 wx init，设置 cwd 为用户目录
+  try {
+    const { execFile } = require('child_process')
+    const { promisify } = require('util')
+    const execFileAsync = promisify(execFile)
+
+    await execFileAsync(wxCliPath, ['init'], {
+      timeout: 30000,
+      encoding: 'utf-8',
+      cwd: os.homedir()
+    })
+    console.log('[Main] wx init completed')
+  } catch (e: any) {
+    console.error('[Main] wx init failed:', e.stderr || e.message)
+  }
+}
+
 function startGlueLayer(): void {
   const wxCliPath = getWxCliPath()
   const glueLayerPath = getGlueLayerPath()
@@ -919,7 +955,11 @@ app.whenReady().then(async () => {
   })
 
   // Start glue-layer after skill server initialization
-  setTimeout(startGlueLayer, 2000)
+  // First ensure wx-cli config exists, then start glue-layer
+  setTimeout(async () => {
+    await ensureWxCliConfig()
+    startGlueLayer()
+  }, 2000)
 
   createWindow()
 
@@ -1323,13 +1363,16 @@ function normalizeCapture(raw: unknown): Partial<Record<AppType, PerAppCapture>>
 }
 
 function normalizeSettings(raw: any): AppSettings {
-  const oldApiKey = typeof raw?.apiKey === 'string' ? raw.apiKey : ''
+  const oldApiKey = sanitizeApiKey(typeof raw?.apiKey === 'string' ? raw.apiKey : '')
   const oldModel = typeof raw?.model === 'string' && raw.model ? raw.model : FIXED_ARK_MODEL
   const oldSystemPrompt = typeof raw?.systemPrompt === 'string' ? raw.systemPrompt : ''
   const rawProviderConfig =
     raw?.chatProvider?.config && typeof raw.chatProvider.config === 'object'
       ? { ...raw.chatProvider.config }
       : {}
+  if (typeof rawProviderConfig.apiKey === 'string') {
+    rawProviderConfig.apiKey = sanitizeApiKey(rawProviderConfig.apiKey)
+  }
 
   // Keep arbitrary provider config keys, and only backfill legacy volcengine fields for old persisted settings.
   if (rawProviderConfig.apiKey === undefined && oldApiKey) {
@@ -1342,11 +1385,13 @@ function normalizeSettings(raw: any): AppSettings {
     rawProviderConfig.systemPrompt = oldSystemPrompt
   }
 
+  const visionApiKey = sanitizeApiKey(raw?.vision?.apiKey || oldApiKey || '')
+
   return {
     locale: raw?.locale === 'en' ? 'en' : 'zh',
     appType: coerceAppType(raw?.appType),
     vision: {
-      apiKey: raw?.vision?.apiKey || oldApiKey || ''
+      apiKey: visionApiKey
     },
     chatProvider: {
       manifestUrl: raw?.chatProvider?.manifestUrl || raw?.providerManifestUrl || '',
@@ -1356,6 +1401,39 @@ function normalizeSettings(raw: any): AppSettings {
     defaultCaptureStrategy: coerceStrategy(raw?.defaultCaptureStrategy, 'auto'),
     capture: normalizeCapture(raw?.capture)
   }
+}
+
+/**
+ * 校验并清洗 API Key。返回合法的 key，或空字符串。
+ *
+ * 历史踩坑：有客户把联系人名（"付海涛"）误填进 API Key，导致 fetch 抛
+ * "Cannot convert argument to a ByteString"。这里静默拒收非 ASCII / 过短的
+ * 字符串，避免把错误带到 LLM 调用层。
+ *
+ * 规则：
+ * - 空字符串原样返回（=未配置，允许）
+ * - 必须全部是 ASCII 字符（char code ≤ 127）
+ * - 长度至少 8（主流供应商 key 都 ≥ 32 位，8 足以把中文/名字误填挡掉）
+ */
+function sanitizeApiKey(value: unknown): string {
+  if (typeof value !== 'string') return ''
+  const trimmed = value.trim()
+  if (trimmed.length === 0) return ''
+  if (trimmed.length < 8) {
+    console.warn(
+      `[settings] 丢弃非法 API Key（长度 ${trimmed.length} < 8）：${trimmed.slice(0, 16)}...`
+    )
+    return ''
+  }
+  for (let i = 0; i < trimmed.length; i++) {
+    if (trimmed.charCodeAt(i) > 127) {
+      console.warn(
+        `[settings] 丢弃非法 API Key（含非 ASCII 字符，位置 ${i}）：${trimmed.slice(0, 16)}...`
+      )
+      return ''
+    }
+  }
+  return trimmed
 }
 
 function withSchemaDefaults(

@@ -16,20 +16,9 @@ export interface WeChatInstallStatus {
 
 /** 检查微信进程是否在运行（支持旧版和新版） */
 function isWeChatRunning(): { running: boolean; processName: string; exePath: string | null } {
-  // 检查旧版 WeChat.exe
-  try {
-    const output = execSync('tasklist /FI "IMAGENAME eq WeChat.exe" /NH', {
-      encoding: 'utf-8',
-      windowsHide: true,
-      timeout: 5000
-    })
-    if (output.includes('WeChat.exe')) {
-      const exePath = findExeFromProcess('WeChat.exe')
-      return { running: true, processName: 'WeChat.exe', exePath }
-    }
-  } catch { /* ignore */ }
-
-  // 检查新版 WeChatAppEx.exe（xwechat 4.x）
+  // 优先检查新版 WeChatAppEx.exe（xwechat 4.x）
+  // 必须放在 WeChat.exe 之前：微信 4.x 同时存在两个进程，
+  // 若先检测到 WeChat.exe（启动器），会误判为旧版
   try {
     const output = execSync('tasklist /FI "IMAGENAME eq WeChatAppEx.exe" /NH', {
       encoding: 'utf-8',
@@ -39,6 +28,19 @@ function isWeChatRunning(): { running: boolean; processName: string; exePath: st
     if (output.includes('WeChatAppEx.exe')) {
       const exePath = findExeFromProcess('WeChatAppEx.exe')
       return { running: true, processName: 'WeChatAppEx.exe', exePath }
+    }
+  } catch { /* ignore */ }
+
+  // 再检查旧版 WeChat.exe
+  try {
+    const output = execSync('tasklist /FI "IMAGENAME eq WeChat.exe" /NH', {
+      encoding: 'utf-8',
+      windowsHide: true,
+      timeout: 5000
+    })
+    if (output.includes('WeChat.exe')) {
+      const exePath = findExeFromProcess('WeChat.exe')
+      return { running: true, processName: 'WeChat.exe', exePath }
     }
   } catch { /* ignore */ }
 

@@ -149,6 +149,14 @@ export class AIClient {
     const TIMEOUT_MS = 30_000 // 30 秒超时
     const callStart = Date.now()
 
+    // 防御：HTTP header 必须是 ByteString（Latin-1）。如果 apiKey 里混进了中文
+    // （历史上真有客户把联系人名填成 API Key），fetch 会抛难看的 ByteString 异常。
+    // 这里提前拦截并给出清晰错误。
+    const key = this.config.apiKey || ''
+    if (key.length > 0 && !/^[ -~]+$/.test(key)) {
+      throw new Error('API Key 包含非法字符（必须为 ASCII，如英文字母/数字），请在设置中重新填写')
+    }
+
     // 计算 payload 大小（粗略，不重复序列化）
     const bodyStr = JSON.stringify({
       model: this.config.model,
@@ -168,7 +176,7 @@ export class AIClient {
       const response = await fetch(url, {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${this.config.apiKey}`,
+          Authorization: `Bearer ${key}`,
           'Content-Type': 'application/json'
         },
         body: bodyStr,

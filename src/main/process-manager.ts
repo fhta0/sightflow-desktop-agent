@@ -80,7 +80,8 @@ export class ProcessManager {
     try {
       this.process = spawn(this.options.executablePath, args, {
         stdio: ['ignore', 'pipe', 'pipe'],
-        windowsHide: false
+        windowsHide: false,
+        cwd: path.dirname(this.options.wxCliPath)  // 设置工作目录为 wx-cli 所在目录
       })
     } catch (e) {
       console.error('[ProcessManager] spawn failed:', e)
