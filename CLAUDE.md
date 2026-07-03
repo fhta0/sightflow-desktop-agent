@@ -102,6 +102,7 @@ npm run dev:test-switch      # Test window switching
 - Settings stored via `electron-store` with schema in `src/main/index.ts`
 - Provider Hub URL: `https://sightflow.dev/provider-hub.json` (configurable via env `SIGHTFLOW_PROVIDER_HUB_URL`)
 - Volcengine Ark defaults: Model `doubao-seed-2.0-lite`, Base URL `https://ark.cn-beijing.volces.com/api/plan/v3`
+- **API Key 校验**：`sanitizeApiKey()`（`src/core/ai-client.ts`）拒绝非 ASCII / 过短的字符串，在 `normalizeSettings()`（`src/main/index.ts`）和 UI（`App.tsx`）保存前统一调用。历史上有客户把联系人名误填进 API Key 框，fetch 抛 `ByteString` 异常 — 提前清洗避免 fetch 失败。
 
 ## Skill HTTP Server (Remote Control)
 
@@ -135,6 +136,11 @@ Test scripts in `src/core/rpa/tests/`:
 - `test-vlm-parallel.ts`: VLM performance comparison
 
 Test CLI entry: `scripts/test-cli.ts` compiled to `out/main/test-cli.js`
+
+## Known Limitations
+
+- **WeChat 窗口激活**：`activateWechatWindow()` 只用 `node-window-manager.bringToTop()`（不用 PowerShell / Win32 API / RobotJS 组合拳，因为会触发 Windows Defender AMSI 报警）。微信在聊天状态时窗口标题是联系人名字（不是 "微信"），`matchWechatType` 精确匹配会失败，导致 send-message 500。**要求用户在发消息前把微信主窗口置于前台**（标题变回 "微信"）。曾尝试过的方案（PowerShell + C# Win32 API）已回滚，不要重复尝试。
+- **electron-log 未启用**：主进程日志只写 stdout/stderr，不进文件。要持久化排查需客户机从 CMD 启动并捕获输出（`start "" "微信-Driverless.exe" > sf-stdout.log 2> sf-stderr.log`，不要用 PowerShell 重定向，会走管道导致死锁）。
 
 ## File Organization
 
