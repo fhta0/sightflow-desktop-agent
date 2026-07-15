@@ -1,7 +1,7 @@
 import { clipboard } from 'electron'
 import { AppType } from './types'
-import { getWindowInfo, getInputBoxCoords, activateWechatWindow } from './window-utils'
-import { getInputAreaFromCache } from './vision-utils'
+import { getWindowInfo, activateWechatWindow } from './window-utils'
+import { getInputAreaFromCache, detectWechatLayout } from './vision-utils'
 import { captureWechatWindow } from './screenshot-utils'
 import { AIClient } from '../ai-client'
 const IS_WINDOWS = process.platform === 'win32'
@@ -620,6 +620,57 @@ async function verifyChatWindowOpen(
 }
 
 /**
+ * VLM 校验：消息粘贴后，输入框是否真的出现了内容（或聊天流里出现了刚发送的消息）
+ *
+ * 截图微信窗口，让 VLM 判断输入区域是否有可见的文字。
+ * 用于检测"鼠标点错位置导致粘贴无效"这类焦点问题。
+ */
+async function verifyMessagePasted(
+  _message: string,
+  vlmApiKey: string
+): Promise<boolean> {
+  try {
+    const screenshotResult = await captureWechatWindow('wechat')
+    if (!screenshotResult.success || !screenshotResult.screenshotBase64) {
+      console.warn('[verifyMessagePasted] 截图失败，跳过校验')
+      return true  // 截图失败不阻断，信任之前的流程
+    }
+
+    const client = new AIClient({ apiKey: vlmApiKey })
+    const prompt = `你是一个微信桌面端界面解析专家。
+
+## 当前界面
+这是微信聊天窗口的截图。刚刚通过自动化流程在底部输入框粘贴了一条消息并执行了 Enter 发送。
+
+## 你的任务
+判断底部"消息输入框"里是否**还有可见的文字内容**，或者右侧聊天流中**是否出现了刚发送的新消息气泡**。
+满足以下任一条件即视为发送成功：
+- 输入框已清空（说明 Enter 触发发送成功）
+- 聊天流中出现了新的消息气泡
+
+如果输入框里仍有明显的文字内容（粘贴后未被清空/发送），说明消息没有成功发出。
+
+## 输出格式
+- 如果已发送/输入框已清空：<result>sent</result>
+- 如果输入框里仍有文字未发出：<result>stuck</result>
+只输出结果标签，不要其他内容。`
+
+    const response = await client.detectVision(prompt, screenshotResult.screenshotBase64)
+    console.log('[verifyMessagePasted] VLM 返回:', response?.slice(0, 200))
+
+    const stuck = response?.includes('<result>stuck</result>') ?? false
+    if (stuck) {
+      console.warn('[verifyMessagePasted] 检测到消息卡在输入框')
+      return false
+    }
+    return true
+  } catch (err: any) {
+    console.warn('[verifyMessagePasted] 校验异常，跳过:', err.message)
+    return true  // 不阻断主流程
+  }
+}
+
+/**
  * 组合函数：搜索联系人 + Enter 打开聊天 → 验证 → 输入并发送消息
  *
  * 人类行为特征：
@@ -682,8 +733,42 @@ export async function sendMessageToContact(
       await randomDelayIn(500, 900)
     }
 
-    // 阶段 4: 计算输入框坐标并仿人移动
-    const [inputX, inputY] = getInputBoxCoords(bounds)
+    // 阶段 4: 用 VLM 视觉定位输入框坐标（取代硬编码比例，解决窗口布局差异）
+    //   优先使用 layout cache（如果 engine 已经跑过 detectWechatLayout），
+    //   缺失则临时调一次 VLM；VLM 也失败才回退到经验坐标。
+    let inputX: number
+    let inputY: number
+    let vlmClient: AIClient | null = null
+    try {
+      vlmClient = new AIClient({ apiKey: vlmApiKey })
+    } catch (err: any) {
+      console.warn('[sendMessageToContact] 构造 AIClient 失败:', err.message)
+    }
+
+    let inputArea = getInputAreaFromCache(appType)
+    if (!inputArea && vlmClient) {
+      console.log('[sendMessageToContact] layout cache 缺失，调 VLM 检测布局...')
+      const layoutResult = await detectWechatLayout(vlmClient, appType)
+      if (layoutResult.success) {
+        inputArea = getInputAreaFromCache(appType)
+      } else {
+        console.warn('[sendMessageToContact] VLM 布局检测失败:', layoutResult.error)
+      }
+    }
+
+    if (inputArea) {
+      // VLM 给的坐标加一点随机抖动（仿人），避免精确到像素
+      inputX = inputArea.coordinates[0] + (Math.random() - 0.5) * 16
+      inputY = inputArea.coordinates[1] + (Math.random() - 0.5) * 6
+      console.log(`[sendMessageToContact] 使用 VLM 输入框坐标: (${Math.round(inputX)}, ${Math.round(inputY)})`)
+    } else {
+      // Fallback: 用经验公式（窗口右下角 - 150, -40），比旧的 0.85 比例更稳
+      const fallback = getWeChatInputPosition(bounds, 1)
+      inputX = fallback.inputX
+      inputY = fallback.inputY
+      console.warn(`[sendMessageToContact] VLM 不可用，使用经验坐标: (${Math.round(inputX)}, ${Math.round(inputY)})`)
+    }
+
     await humanLikeMove(inputX, inputY)
     await randomDelayIn(150, 300)
 
@@ -697,11 +782,33 @@ export async function sendMessageToContact(
     // 阶段 7: 输入前的"思考回复"停顿
     await randomDelayIn(500, 1000)
 
-    // 阶段 8: 安全粘贴并发送消息
-    const sendOk = await safePaste(message)
+    // 阶段 8: 安全粘贴并发送消息（含 VLM 校验 + 一次重试）
+    let sendOk = await safePaste(message)
+
     if (!sendOk) {
-      console.error('[sendMessageToContact] 发送失败')
+      console.error('[sendMessageToContact] safePaste 抛异常，判定发送失败')
       return false
+    }
+
+    // 阶段 8.5: VLM 校验消息是否真的进了输入框 / 出现在聊天流
+    //   如果校验失败，再走一次 "点击输入框 + 粘贴 + Enter" 的重试
+    if (vlmClient) {
+      const verifyOk = await verifyMessagePasted(message, vlmApiKey)
+      if (!verifyOk) {
+        console.warn('[sendMessageToContact] VLM 校验消息未粘贴，重试一次...')
+        // 重新点击输入框（用 VLM 坐标）
+        if (inputArea) {
+          await humanLikeMove(inputX, inputY)
+          await randomDelayIn(100, 200)
+          await humanLikeClick('left', 'careful')
+          await randomDelayIn(300, 500)
+        }
+        sendOk = await safePaste(message)
+        if (!sendOk) {
+          console.error('[sendMessageToContact] 重试后 safePaste 仍失败')
+          return false
+        }
+      }
     }
 
     // 阶段 9: 发送后的自然停顿和鼠标移动

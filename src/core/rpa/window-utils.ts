@@ -70,13 +70,43 @@ type PlatformWindow = {
 async function getWechatWindowInWin(appType: AppType): Promise<PlatformWindow | null> {
   try {
     const { windowManager } = require('node-window-manager')
+
+    // 1. 精确标题匹配（主窗口标题为"微信"）
     let activeWechatWindow = windowManager.getActiveWindow()
     if (activeWechatWindow && matchWechatType(activeWechatWindow.getTitle(), appType)) {
       return activeWechatWindow
     }
-    const foundWindow = windowManager.getWindows()
+    const exactMatch = windowManager.getWindows()
       ?.find((window: any) => matchWechatType(window.getTitle(), appType) && window.isVisible())
-    return foundWindow || null
+    if (exactMatch) return exactMatch
+
+    // 2. 标题精确匹配失败 → 用进程名（owner.name）兜底
+    //    微信处于聊天状态时窗口标题是联系人名字（不是"微信"），
+    //    此时 matchWechatType 精确匹配会失败，但进程名不变。
+    const expectedOwner = appType === 'wechat'
+      ? ['微信', 'WeChat']
+      : ['企业微信']
+    const allVisible = (windowManager.getWindows() || [])
+      .filter((w: any) => {
+        const owner = w?.owner?.name || w?.path || ''
+        return expectedOwner.some((n) => owner.includes(n)) && w.isVisible()
+      })
+
+    if (allVisible.length === 1) {
+      console.log(`[getWechatWindowInWin] 标题未精确匹配，按进程名兜底: ${allVisible[0].getTitle()}`)
+      return allVisible[0]
+    }
+    if (allVisible.length > 1) {
+      // 多个微信窗口：挑标题里包含"微信"的那个，或第一个
+      const withWechatInTitle = allVisible.find((w: any) => {
+        const t = w.getTitle() || ''
+        return t.includes('微信') || t.includes('WeChat')
+      })
+      console.log(`[getWechatWindowInWin] ${allVisible.length} 个微信窗口，挑选: ${(withWechatInTitle || allVisible[0]).getTitle()}`)
+      return withWechatInTitle || allVisible[0]
+    }
+
+    return null
   } catch (err: any) {
     console.error('[window-utils] getWechatWindowInWin error:', err.message)
     return null
@@ -270,10 +300,23 @@ export async function activateWechatWindow(appType: AppType = 'wechat'): Promise
       const { windowManager } = require('node-window-manager')
       const windows = windowManager.getWindows()
 
-      // 找到微信窗口
-      const wechatWindow = windows.find((window: any) =>
+      // 1. 精确标题匹配（主窗口标题为"微信"）
+      let wechatWindow = windows.find((window: any) =>
         matchWechatType(window.getTitle(), appType) && window.isVisible()
       )
+
+      // 2. 标题匹配失败 → 用进程名兜底（处理聊天状态下标题变为联系人名字的情况）
+      if (!wechatWindow) {
+        const expectedOwner = appType === 'wechat' ? ['微信', 'WeChat'] : ['企业微信']
+        const allVisible = (windows || []).filter((w: any) => {
+          const owner = w?.owner?.name || w?.path || ''
+          return expectedOwner.some((n) => owner.includes(n)) && w.isVisible()
+        })
+        if (allVisible.length >= 1) {
+          wechatWindow = allVisible[0]
+          console.log(`[activateWechatWindow] 标题未匹配，按进程名兜底: ${wechatWindow.getTitle()}`)
+        }
+      }
 
       if (!wechatWindow) {
         console.error(`[activateWechatWindow] 未找到 ${appType} 窗口`)
