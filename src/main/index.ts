@@ -1068,16 +1068,25 @@ async function startEngineCore(rawConfig?: any): Promise<SkillStartResult> {
       channel,
       provider,
       initialState: createInitialGenericChannelState(),
-      onLog: log
-    })
-
-    runtime.startSession().catch((err: any) => {
-      console.error('[Main] Runtime session error:', err)
-      setEngineBusy(false)
+      onLog: log,
+      // 引擎彻底停止（bootstrap 失败 / runtime_error / 主动 stopSession）时触发。
+      // 必须在这里清理 _engineBusy，否则 send-message 永久 409 engine_busy。
+      onSessionStopped: () => {
+        console.log('[startEngineCore] engine stopped — clearing _engineBusy')
+        setEngineBusy(false)
+        notifyEngineStateChanged('idle')
+      }
     })
 
     setEngineBusy(true)
     notifyEngineStateChanged('running')
+
+    // runtime.startSession() 仅 await onStart() 完成就返回 —— 真正的状态机循环
+    // （bootstrap → measureLayout → check_unread → ...）在后台 drainQueue 里跑。
+    // 引擎结束时 RuntimeHost 会调用 onSessionStopped 回调清理 _engineBusy。
+    runtime.startSession().catch((err: any) => {
+      console.error('[startEngineCore] runtime.startSession rejected:', err)
+    })
 
     return { ok: true }
   } catch (error: any) {

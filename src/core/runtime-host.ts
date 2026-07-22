@@ -2,7 +2,6 @@ import {
   ChannelContext,
   ChannelSession,
   ProviderAdapter,
-  ProviderInput,
   RuntimeHostControls,
   SessionEvent
 } from './session-types'
@@ -14,6 +13,9 @@ interface RuntimeHostOptions<TState> {
   provider: ProviderAdapter
   initialState: TState
   onLog?: (type: 'thinking' | 'reply' | 'skip' | 'error', content: string) => void
+  // 引擎彻底停止（bootstrap 失败 / 内部 runtime_error / 主动 stopSession）时触发。
+  // 用于让 startEngineCore 同步清理 _engineBusy，避免 send-message 永久 409。
+  onSessionStopped?: () => void
 }
 
 export class RuntimeHost<TState> {
@@ -46,6 +48,8 @@ export class RuntimeHost<TState> {
       await this.stopSession('start_failed')
       throw error
     }
+    // 不再 await 引擎结束 —— 保持原语义，让 /skill/start 立即返回。
+    // 真正的"引擎结束"信号由 onSessionStopped 回调通知外部。
   }
 
   async stopSession(_reason?: string): Promise<void> {
@@ -66,6 +70,7 @@ export class RuntimeHost<TState> {
       this.processingQueue = false
       this.stopping = false
       this.log('skip', '引擎已停止')
+      this.options.onSessionStopped?.()
     }
   }
 
@@ -81,7 +86,7 @@ export class RuntimeHost<TState> {
     return {
       enqueue: (event) => this.enqueue(event),
       schedule: (event, delayMs) => this.schedule(event, delayMs),
-      runProvider: (input: ProviderInput) => this.options.provider.run(input),
+      runProvider: (input) => this.options.provider.run(input),
       log: (type, content) => this.log(type, content),
       isRunning: () => this.running,
       stopSession: async (reason?: string) => this.stopSession(reason)
