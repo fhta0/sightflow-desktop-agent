@@ -141,6 +141,7 @@ Test CLI entry: `scripts/test-cli.ts` compiled to `out/main/test-cli.js`
 
 - **WeChat 窗口激活**：`activateWechatWindow()` 只用 `node-window-manager.bringToTop()`（不用 PowerShell / Win32 API / RobotJS 组合拳，因为会触发 Windows Defender AMSI 报警）。微信在聊天状态时窗口标题是联系人名字（不是 "微信"），`matchWechatType` 精确匹配会失败，导致 send-message 500。**要求用户在发消息前把微信主窗口置于前台**（标题变回 "微信"）。曾尝试过的方案（PowerShell + C# Win32 API）已回滚，不要重复尝试。
 - **electron-log 未启用**：主进程日志只写 stdout/stderr，不进文件。要持久化排查需客户机从 CMD 启动并捕获输出（`start "" "微信-Driverless.exe" > sf-stdout.log 2> sf-stderr.log`，不要用 PowerShell 重定向，会走管道导致死锁）。
+- **wx-cli 路径 fallback**：`getWxCliPath()` 在 dev 模式下优先返回 `resources/wx-cli/wx.exe`，找不到则 fallback 到兄弟仓库 `../wx-cli/target/release/wx.exe`（因为 `resources/wx-cli/` 在 `.gitignore` 里，`cargo build` 产物不会自动出现在这）。打包版本仍只走 `process.resourcesPath`，依赖 `electron-builder.yml` 的 `extraResources` 把 `resources/wx-cli/*.exe` 复制进去 — 打包前必须先手动把 wx.exe 复制到 `resources/wx-cli/`。
 
 ## File Organization
 

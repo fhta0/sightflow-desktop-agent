@@ -1,5 +1,6 @@
 import { spawn, ChildProcess } from 'child_process'
 import { app } from 'electron'
+import * as fs from 'fs'
 import * as path from 'path'
 
 export interface ProcessManagerCallbacks {
@@ -161,7 +162,22 @@ export function getWxCliPath(): string {
   if (app.isPackaged) {
     return path.join(process.resourcesPath, 'wx-cli', 'wx.exe')
   }
-  return path.join(app.getAppPath(), 'resources', 'wx-cli', 'wx.exe')
+
+  // dev 模式：
+  //   优先：resources/wx-cli/wx.exe（手动/构建脚本复制过来的）
+  //   Fallback：兄弟仓库 wx-cli/target/release/wx.exe（避免手动复制）
+  const preferred = path.join(app.getAppPath(), 'resources', 'wx-cli', 'wx.exe')
+  if (fs.existsSync(preferred)) return preferred
+
+  const fallback = path.join(app.getAppPath(), '..', 'wx-cli', 'target', 'release', 'wx.exe')
+  if (fs.existsSync(fallback)) {
+    console.log(`[getWxCliPath] resources/wx-cli/wx.exe 缺失，使用源码构建路径: ${fallback}`)
+    return fallback
+  }
+
+  // 都没有，返回 preferred 让调用方报清晰的 "file not found" 错
+  console.error(`[getWxCliPath] wx.exe 找不到：preferred=${preferred}, fallback=${fallback}`)
+  return preferred
 }
 
 export function getElevatePath(): string {
