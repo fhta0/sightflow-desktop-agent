@@ -8,7 +8,7 @@ const IS_WINDOWS = process.platform === 'win32'
 const IS_MAC = process.platform === 'darwin'
 
 import { delay, randomDelayIn, getRobot } from './util'
-import { generateBezierPath } from './human-input'
+import { generateBezierPath, typeStringWithDelay } from './human-input'
 
 // 原版 whatsapp-agent-demo 的贝塞尔曲线仿人滑动
 async function humanLikeMove(
@@ -127,6 +127,45 @@ export async function humanLikeClick(
   }
 }
 
+/**
+ * 把整段文本逐字"打"进当前焦点输入框。
+ * Windows/macOS 中文场景：每字符写剪贴板 + Ctrl/Cmd+V，避免 typeString 中文失败。
+ * 视觉与人类逐字输入一致（每字符 35-55ms）。
+ *
+ * 调用前必须保证输入框已聚焦（点击或 Tab 已完成）。
+ * 函数内部备份当前剪贴板，退出时恢复，避免污染用户剪贴板。
+ */
+export async function humanLikeTypeIntoFocusedField(
+  text: string,
+  isCancelled?: () => boolean
+): Promise<{ completed: boolean; charactersTyped: number }> {
+  const robot = getRobot()
+  if (!robot) {
+    console.error('[humanLikeTypeIntoFocusedField] RobotJS 缺失')
+    return { completed: false, charactersTyped: 0 }
+  }
+  const originalClipboard = clipboard.readText()
+  try {
+    return await typeStringWithDelay({
+      text,
+      isCancelled,
+      typeChar: (ch) => {
+        clipboard.writeText(ch)
+        if (IS_MAC) robot.keyTap('v', ['command'])
+        else robot.keyTap('v', ['control'])
+      },
+      keyTap: (key, mods) => robot.keyTap(key, mods),
+      sleep: (ms) => delay(ms) as Promise<void>
+    })
+  } finally {
+    if (originalClipboard && originalClipboard.trim() !== '') {
+      clipboard.writeText(originalClipboard)
+    } else {
+      clipboard.clear()
+    }
+  }
+}
+
 const getWeChatInputPosition = (bounds: any, scaleFactor: number) => {
   if (IS_WINDOWS) {
     const baseInputX = Math.round((bounds.x + bounds.width - 150) * scaleFactor)
@@ -185,23 +224,11 @@ export async function sendReplyByCoordsAction(
     await humanLikeClick('left', 'careful')
     await randomDelayIn(300, 500)  // 等待输入框激活
 
-    // 阶段 5: 写入剪贴板前的"准备动作"停顿
-    await randomDelayIn(80, 150)
-    clipboard.writeText(text)
-    await randomDelayIn(100, 200)  // 剪贴板写入后的停顿
+    // 阶段 5: 逐字输入（替代原 Ctrl+V 整段粘贴）
+    await humanLikeTypeIntoFocusedField(text)
 
-    // 阶段 6: 粘贴操作
-    if (IS_MAC) {
-      robot.keyTap('v', ['command'])
-    } else {
-      robot.keyTap('v', ['control'])
-    }
-
-    // 粘贴后的停顿（等待内容显示，人类通常会看一下）
-    await randomDelayIn(500, 800)
-
-    // 阶段 7: 发送前的"检查内容"停顿（人类习惯确认发送内容）
-    await randomDelayIn(300, 600)
+    // 阶段 6: 发送前"检查内容"停顿（人类习惯确认）
+    await randomDelayIn(300, 700)
 
     // 发送
     robot.keyTap('enter')
