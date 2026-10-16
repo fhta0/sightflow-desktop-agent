@@ -26,14 +26,14 @@ describe('generateIrregularDelay', () => {
     }
   })
 
-  it('mean is approximately baseDelay (within ±10%)', () => {
+  it('mean is approximately 1.20 * baseDelay (mixture distribution due to long-pause branch)', () => {
     const samples = Array.from({ length: 10000 }, () => generateIrregularDelay(100))
     const { mean } = stats(samples)
     expect(mean).toBeGreaterThanOrEqual(110)
     expect(mean).toBeLessThanOrEqual(140)
   })
 
-  it('stddev is approximately 0.4 * baseDelay (within ±30%)', () => {
+  it('stddev is approximately 0.98 * baseDelay (mixture distribution)', () => {
     const samples = Array.from({ length: 10000 }, () => generateIrregularDelay(100))
     const { stddev } = stats(samples)
     expect(stddev).toBeGreaterThanOrEqual(85)
