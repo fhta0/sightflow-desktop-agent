@@ -33,14 +33,40 @@ Official website： [https://sightflow.dev](https://sightflow.dev/)
 | --- | --- | --- |
 | <img width="240" alt="SightFlow 主界面" src="./docs/images/main.png" /> | <img width="360" alt="SightFlow 基础配置" src="./docs/images/settings-base.png" /> | <img width="360" alt="SightFlow 智能体配置" src="./docs/images/settings-provider.png" /> |
 
-## 微信 Agent 自动回复
+## 微信自动驾驶 (WeChat Autopilot)
 
-SightFlow 内置微信自动回复功能，通过粘合层（glue-layer）连接 wx-cli 和 AI Provider：
+SightFlow 的核心能力是**微信自动驾驶**：装上即用，全程无人值守，AI 像真人一样看消息、思考、打字、发送。整条链路无需驱动、无需注入 DLL、无需 hook 微信进程——它模拟的是人的操作，而不是机器的接口。
 
-- **自动驾驶**：安装后默认启用，自动监控微信消息并生成回复
-- **wxid 自动检测**：启动时通过 `wx contacts` 自动识别当前登录用户（回退机制：先尝试 `wx whoami`，不可用时从联系人列表提取）
-- **视觉接口密钥**：基础配置中的 API Key 同时用于 VLM 视觉定位和 AI 文本回复（豆包 Provider 共享此密钥）
-- **日志查看器**：设置 → 日志 tab 实时显示消息处理日志，支持按类型过滤、搜索、暂停/继续
+### 自动驾驶如何运转
+
+```
+wx-cli (daemon) ──增量消息──▶ glue-layer ──HTTP──▶ SightFlow 引擎 ──RPA──▶ 微信窗口
+                                    │                                          │
+                              AI Provider 生成回复                       键盘鼠标真实操作
+```
+
+- **默认开启**：安装后自动驾驶直接生效，无需手动启动；可在主界面或 `POST /skill/autopilot` 关闭
+- **wxid 自动检测**：启动时通过 `wx contacts` 自动识别当前登录用户（回退：先尝试 `wx whoami`，不可用时从联系人列表提取）
+- **群聊 @ 触发**：私聊直回；群聊仅在 @ 提及时回复，其余消息记入监控日志不响应
+- **防自循环**：自己发出的消息会被回声过滤 + 15 秒静默窗口拦截，避免 AI 跟自己对话
+- **限速**：每联系人 3 条/分钟，模拟人类回复节奏
+- **视觉接口密钥**：基础配置 API Key 同时驱动 VLM 视觉定位与 AI 文本回复（豆包 Provider 共享）
+- **日志查看器**：设置 → 日志 tab 实时显示消息处理日志，支持类型过滤、搜索、暂停/继续
+
+### 拟人化输入（防风控）
+
+微信风控会识别"机器行为"。SightFlow 在键盘鼠标层做了三层拟人化（`src/core/rpa/human-input/`）：
+
+| 维度 | 行为 | 算法 |
+|------|------|------|
+| **打字** | 逐字符输入，每个字 35–55ms | 剪贴板单字符 + Ctrl/Cmd+V（兼容中文）；`\n` → Shift+Enter |
+| **鼠标轨迹** | 曲线移动，非瞬移 | 三次贝塞尔曲线 + ease-in-out 缓动 + 微抖动 |
+| **节奏** | 操作间隔不固定 | Box-Muller 正态分布延迟 + 10% 概率长停顿 + 5% 概率加速 |
+
+效果：一条 200 字的 AI 回复，输入耗时约 7–10 秒——和真人打字的节奏一致，而不是 0.5 秒整段粘贴的机器特征。用户剪贴板内容会在打字前后自动备份与恢复。
+
+> 算法细节与单测见 `src/core/rpa/human-input/__tests__/`（vitest，32 个用例）。
+> 设计权衡记录见 `docs/superpowers/plans/2026-10-16-human-input-detection-evasion.md`（仓库根）。
 
 ### 日志类型
 
@@ -99,6 +125,15 @@ npm install
 npm run dev
 ```
 > **提示**：启动后，应用将打开主界面。请先选择目标应用并完成必要的框选，再进入设置窗口填写 API Key、确认当前启用的 Provider。
+
+### 3. 运行单元测试
+
+```bash
+npm test            # 一次性运行（vitest）
+npm run test:watch  # 监听模式
+```
+
+拟人化输入算法（贝塞尔轨迹 / Box-Muller 延迟 / 逐字打字）均为纯函数，配有独立单测，无需真实鼠标键盘环境。
 
 ## 📦 打包构建 (Build)
 
